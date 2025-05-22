@@ -8,16 +8,16 @@ function VideoChatRoom({ roomId, userId }) {
   const remoteVideoRef = useRef();
   const peerRef = useRef();
   const [stream, setStream] = useState(null);
-  const [isStarted, setIsStarted] = useState(false); // İzin istenip başlamış mı
+  const [isStarted, setIsStarted] = useState(false);
 
   useEffect(() => {
-    if (!isStarted) return; // Başlamadıysa hiçbirşey yapma
+    if (!isStarted) return;
 
     let isInitiator = false;
     const signalsRef = ref(db, `rooms/${roomId}/signals`);
     get(signalsRef).then(snapshot => {
       const signals = snapshot.val();
-      isInitiator = !signals; // sinyal yoksa initiator
+      isInitiator = !signals;
       startPeer(stream, isInitiator);
     });
 
@@ -36,7 +36,7 @@ function VideoChatRoom({ roomId, userId }) {
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = mediaStream;
           }
-          setIsStarted(true); // izin alındı ve medya başladı
+          setIsStarted(true);
         })
         .catch(err => {
           console.error("Kamera/mikrofon erişim hatası:", err);
@@ -54,6 +54,16 @@ function VideoChatRoom({ roomId, userId }) {
       initiator: isInitiator,
       trickle: false,
       stream: mediaStream,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          {
+            urls: 'turn:global.relay.metered.ca:443',
+            username: 'openai',
+            credential: 'openai'
+          }
+        ]
+      }
     });
 
     peerRef.current = peer;
