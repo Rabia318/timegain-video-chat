@@ -1,36 +1,59 @@
 import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
-import { db } from "../firebase";
-import { ref, push, onChildAdded, remove } from "firebase/database";
+import { db } from "../firebase/firebase";
+import { ref, push, onChildAdded, get } from "firebase/database";
 
 function VideoChatRoom({ roomId, userId }) {
   const localVideoRef = useRef();
   const remoteVideoRef = useRef();
   const peerRef = useRef();
   const [stream, setStream] = useState(null);
+  const [isStarted, setIsStarted] = useState(false); // İzin istenip başlamış mı
 
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then(mediaStream => {
-        setStream(mediaStream);
-        localVideoRef.current.srcObject = mediaStream;
-        startPeer(mediaStream);
-      })
-      .catch(console.error);
+    if (!isStarted) return; // Başlamadıysa hiçbirşey yapma
+
+    let isInitiator = false;
+    const signalsRef = ref(db, `rooms/${roomId}/signals`);
+    get(signalsRef).then(snapshot => {
+      const signals = snapshot.val();
+      isInitiator = !signals; // sinyal yoksa initiator
+      startPeer(stream, isInitiator);
+    });
 
     return () => {
       if (peerRef.current) peerRef.current.destroy();
       if (stream) stream.getTracks().forEach(track => track.stop());
     };
-  }, []);
+  }, [isStarted]);
 
-  function startPeer(mediaStream) {
+  function startMedia() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true })
+        .then(mediaStream => {
+          setStream(mediaStream);
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = mediaStream;
+          }
+          setIsStarted(true); // izin alındı ve medya başladı
+        })
+        .catch(err => {
+          console.error("Kamera/mikrofon erişim hatası:", err);
+          alert("Kamera ve mikrofon erişimini lütfen izin veriniz.");
+        });
+    } else {
+      alert("Tarayıcınız getUserMedia desteği sunmuyor.");
+    }
+  }
+
+  function startPeer(mediaStream, isInitiator) {
     const signalsRef = ref(db, `rooms/${roomId}/signals`);
 
     const peer = new Peer({
-      initiator: true,
+      initiator: isInitiator,
       trickle: false,
-      stream: mediaStream
+      stream: mediaStream,
     });
 
     peerRef.current = peer;
@@ -38,7 +61,7 @@ function VideoChatRoom({ roomId, userId }) {
     peer.on("signal", data => {
       push(signalsRef, {
         from: userId,
-        signal: data
+        signal: data,
       });
     });
 
@@ -50,14 +73,34 @@ function VideoChatRoom({ roomId, userId }) {
     });
 
     peer.on("stream", remoteStream => {
-      remoteVideoRef.current.srcObject = remoteStream;
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream;
+      }
     });
   }
 
   return (
     <div>
-      <video ref={localVideoRef} muted autoPlay playsInline style={{ width: 300 }} />
-      <video ref={remoteVideoRef} autoPlay playsInline style={{ width: 300 }} />
+      {!isStarted && (
+        <button onClick={startMedia}>
+          Kamerayı Aç ve İzin Ver
+        </button>
+      )}
+      <div style={{ display: isStarted ? "block" : "none" }}>
+        <video
+          ref={localVideoRef}
+          muted
+          autoPlay
+          playsInline
+          style={{ width: 300 }}
+        />
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          style={{ width: 300 }}
+        />
+      </div>
     </div>
   );
 }
