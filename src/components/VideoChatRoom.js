@@ -3,19 +3,17 @@ import Peer from "simple-peer";
 import { db } from "../firebase/firebase";
 import { ref, push, onChildAdded, off, get } from "firebase/database";
 
-function VideoChatRoom({ roomId, userId }) {
+function VideoChatRoom({ roomId }) {
+  const userId = useRef(crypto.randomUUID()).current; // Otomatik benzersiz ID
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
   const signalsRef = useRef(null);
+  const signalQueue = useRef([]);
 
   const [stream, setStream] = useState(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
-
-  // Peer state
-  const hasReceivedOffer = useRef(false);
-  const queuedSignals = useRef([]);
 
   useEffect(() => {
     if (!started) return;
@@ -36,14 +34,14 @@ function VideoChatRoom({ roomId, userId }) {
       })
       .catch((err) => {
         console.error("Kamera/mikrofon hatası:", err);
-        setError("Kamera ve mikrofona erişim izni gerekli.");
+        setError("Lütfen kamera ve mikrofona izin verin.");
       });
 
     return () => {
       if (peerRef.current) peerRef.current.destroy();
-      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (stream) stream.getTracks().forEach((track) => track.stop());
       if (signalsRef.current) off(signalsRef.current);
-      queuedSignals.current = [];
+      signalQueue.current = [];
     };
   }, [started]);
 
@@ -75,31 +73,26 @@ function VideoChatRoom({ roomId, userId }) {
 
     onChildAdded(signalsRef.current, (snapshot) => {
       const msg = snapshot.val();
-      if (msg.from === userId || !msg.signal) return;
-
-      const signal = msg.signal;
-      const type = signal.type;
-
-      if (!peer.initiator && type === "offer") {
-        hasReceivedOffer.current = true;
-        peer.signal(signal);
-        processQueuedSignals(); // offer geldikten sonra diğerlerini uygula
-      } else if (!peer.initiator && type === "answer") {
-        if (!hasReceivedOffer.current) {
-          queuedSignals.current.push(signal); // offer yoksa answer'ı beklet
-        } else {
-          peer.signal(signal);
-        }
-      } else {
-        // type yoksa (candidate gibi) doğrudan uygula
-        try {
-          peer.signal(signal);
-        } catch (err) {
-          console.warn("ICE signal apply failed, queued:", signal);
-          queuedSignals.current.push(signal);
-        }
+      if (msg.from !== userId) {
+        signalQueue.current.push(msg.signal);
+        processSignalQueue();
       }
     });
+
+    function processSignalQueue() {
+      if (!peerRef.current || signalQueue.current.length === 0) return;
+
+      try {
+        const signal = signalQueue.current.shift();
+        peerRef.current.signal(signal);
+
+        if (signalQueue.current.length > 0) {
+          setTimeout(processSignalQueue, 100);
+        }
+      } catch (err) {
+        console.warn("Signal işlenirken hata:", err);
+      }
+    }
 
     peer.on("stream", (remoteStream) => {
       if (remoteVideoRef.current) {
@@ -109,19 +102,8 @@ function VideoChatRoom({ roomId, userId }) {
 
     peer.on("error", (err) => {
       console.error("Peer error:", err);
-      setError("Bağlantı hatası. Sayfayı yenileyin.");
+      setError("Bağlantı hatası oluştu. Sayfayı yenileyin.");
     });
-  }
-
-  function processQueuedSignals() {
-    queuedSignals.current.forEach(sig => {
-      try {
-        peerRef.current.signal(sig);
-      } catch (err) {
-        console.warn("Queued signal işleminde hata:", err);
-      }
-    });
-    queuedSignals.current = [];
   }
 
   return (
