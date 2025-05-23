@@ -5,7 +5,7 @@ import { auth, loginAnonymously } from './firebase/firebase';
 import { onAuthStateChanged } from "firebase/auth";
 
 function RoomWrapper({ user }) {
-  const { roomId } = useParams(); // URL'den roomId'yi al
+  const { roomId } = useParams();
   return <VideoChatRoom roomId={roomId} userId={user.uid} />;
 }
 
@@ -13,7 +13,6 @@ function Home({ user }) {
   const [inputRoomId, setInputRoomId] = useState("");
   const navigate = useNavigate();
 
-  // Kullanıcının girdiği oda ID'si ile odaya yönlendirme
   const handleJoin = () => {
     if (inputRoomId.trim() !== "") {
       navigate(`/room/${inputRoomId.trim()}`);
@@ -36,9 +35,6 @@ function Home({ user }) {
       >
         Katıl
       </button>
-      <p style={{ marginTop: "20px", fontStyle: "italic" }}>
-        Yeni oda oluşturmak için boş bırakıp Enter tuşuna bas veya URL'ye yeni bir ID ile git.
-      </p>
     </div>
   );
 }
