@@ -8,21 +8,17 @@ function VideoChatRoom({ roomId, userId }) {
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
   const signalsRef = useRef(null);
+  const signalQueue = useRef([]);
 
   const [stream, setStream] = useState(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
 
-  // Sinyal kuyruğu
-  const signalQueue = useRef([]);
-
   useEffect(() => {
     if (!started) return;
 
-    // Firebase sinyal yolu
     signalsRef.current = ref(db, `rooms/${roomId}/signals`);
 
-    // Kamerayı aç
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then(async (mediaStream) => {
         setStream(mediaStream);
@@ -30,7 +26,6 @@ function VideoChatRoom({ roomId, userId }) {
           localVideoRef.current.srcObject = mediaStream;
         }
 
-        // İlk kullanıcıyı belirle: eğer sinyal yoksa initiator'dur
         const snapshot = await get(signalsRef.current);
         const isInitiator = !snapshot.exists();
 
@@ -43,7 +38,7 @@ function VideoChatRoom({ roomId, userId }) {
 
     return () => {
       if (peerRef.current) peerRef.current.destroy();
-      if (stream) stream.getTracks().forEach((track) => track.stop());
+      if (stream) stream.getTracks().forEach(track => track.stop());
       if (signalsRef.current) off(signalsRef.current);
       signalQueue.current = [];
     };
@@ -68,7 +63,6 @@ function VideoChatRoom({ roomId, userId }) {
 
     peerRef.current = peer;
 
-    // Signal oluşturulunca Firebase'e yaz
     peer.on("signal", (data) => {
       push(signalsRef.current, {
         from: userId,
@@ -76,34 +70,53 @@ function VideoChatRoom({ roomId, userId }) {
       });
     });
 
-    // Firebase'deki diğer kullanıcıdan gelen sinyalleri dinle ve kuyruğa al
     onChildAdded(signalsRef.current, (snapshot) => {
       const msg = snapshot.val();
-      if (msg.from !== userId) {
-        signalQueue.current.push(msg.signal);
-        processSignalQueue();
-      }
+      if (msg.from === userId) return; // Kendi sinyalini işlemez
+
+      signalQueue.current.push(msg.signal);
+      processSignalQueue();
     });
 
-    // Kuyruktaki sinyalleri sırayla işle
     function processSignalQueue() {
       if (!peerRef.current || signalQueue.current.length === 0) return;
 
+      const peer = peerRef.current;
+
       try {
-        const signal = signalQueue.current.shift();
-        peerRef.current.signal(signal);
+        const signal = signalQueue.current[0]; // Kuyruğun başını kontrol et
+        const type = signal.type;
+
+        // initiator isek sadece 'answer' ve 'candidate' kabul et
+        if (peer.initiator) {
+          if (type === "answer" || type === "candidate") {
+            signalQueue.current.shift();
+            peer.signal(signal);
+          } else {
+            // Offer sinyali initiator için beklenmedik, at
+            console.warn("Initiator beklenmeyen offer sinyalini atladı.");
+            signalQueue.current.shift();
+          }
+        } else {
+          // Non-initiator isek önce offer, sonra candidate kabul et
+          if (type === "offer" || type === "candidate") {
+            signalQueue.current.shift();
+            peer.signal(signal);
+          } else {
+            // Answer sinyalini non-initiator beklemez, at
+            console.warn("Non-initiator beklenmeyen answer sinyalini atladı.");
+            signalQueue.current.shift();
+          }
+        }
 
         if (signalQueue.current.length > 0) {
-          setTimeout(processSignalQueue, 100);
+          setTimeout(processSignalQueue, 50);
         }
       } catch (err) {
         console.warn("Signal işlenirken hata:", err);
-        // İstersen hata durumunda sinyali tekrar kuyruğa atabilirsin
-        // signalQueue.current.unshift(signal);
       }
     }
 
-    // Karşı tarafın stream'i geldiğinde göster
     peer.on("stream", (remoteStream) => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
