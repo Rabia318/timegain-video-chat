@@ -8,11 +8,14 @@ function VideoChatRoom({ roomId, userId }) {
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
   const signalsRef = useRef(null);
-  const signalQueue = useRef([]);
 
   const [stream, setStream] = useState(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
+
+  // Peer state
+  const hasReceivedOffer = useRef(false);
+  const queuedSignals = useRef([]);
 
   useEffect(() => {
     if (!started) return;
@@ -33,14 +36,14 @@ function VideoChatRoom({ roomId, userId }) {
       })
       .catch((err) => {
         console.error("Kamera/mikrofon hatası:", err);
-        setError("Lütfen kamera ve mikrofona izin verin.");
+        setError("Kamera ve mikrofona erişim izni gerekli.");
       });
 
     return () => {
       if (peerRef.current) peerRef.current.destroy();
-      if (stream) stream.getTracks().forEach(track => track.stop());
+      if (stream) stream.getTracks().forEach(t => t.stop());
       if (signalsRef.current) off(signalsRef.current);
-      signalQueue.current = [];
+      queuedSignals.current = [];
     };
   }, [started]);
 
@@ -72,50 +75,31 @@ function VideoChatRoom({ roomId, userId }) {
 
     onChildAdded(signalsRef.current, (snapshot) => {
       const msg = snapshot.val();
-      if (msg.from === userId) return; // Kendi sinyalini işlemez
+      if (msg.from === userId || !msg.signal) return;
 
-      signalQueue.current.push(msg.signal);
-      processSignalQueue();
-    });
+      const signal = msg.signal;
+      const type = signal.type;
 
-    function processSignalQueue() {
-      if (!peerRef.current || signalQueue.current.length === 0) return;
-
-      const peer = peerRef.current;
-
-      try {
-        const signal = signalQueue.current[0]; // Kuyruğun başını kontrol et
-        const type = signal.type;
-
-        // initiator isek sadece 'answer' ve 'candidate' kabul et
-        if (peer.initiator) {
-          if (type === "answer" || type === "candidate") {
-            signalQueue.current.shift();
-            peer.signal(signal);
-          } else {
-            // Offer sinyali initiator için beklenmedik, at
-            console.warn("Initiator beklenmeyen offer sinyalini atladı.");
-            signalQueue.current.shift();
-          }
+      if (!peer.initiator && type === "offer") {
+        hasReceivedOffer.current = true;
+        peer.signal(signal);
+        processQueuedSignals(); // offer geldikten sonra diğerlerini uygula
+      } else if (!peer.initiator && type === "answer") {
+        if (!hasReceivedOffer.current) {
+          queuedSignals.current.push(signal); // offer yoksa answer'ı beklet
         } else {
-          // Non-initiator isek önce offer, sonra candidate kabul et
-          if (type === "offer" || type === "candidate") {
-            signalQueue.current.shift();
-            peer.signal(signal);
-          } else {
-            // Answer sinyalini non-initiator beklemez, at
-            console.warn("Non-initiator beklenmeyen answer sinyalini atladı.");
-            signalQueue.current.shift();
-          }
+          peer.signal(signal);
         }
-
-        if (signalQueue.current.length > 0) {
-          setTimeout(processSignalQueue, 50);
+      } else {
+        // type yoksa (candidate gibi) doğrudan uygula
+        try {
+          peer.signal(signal);
+        } catch (err) {
+          console.warn("ICE signal apply failed, queued:", signal);
+          queuedSignals.current.push(signal);
         }
-      } catch (err) {
-        console.warn("Signal işlenirken hata:", err);
       }
-    }
+    });
 
     peer.on("stream", (remoteStream) => {
       if (remoteVideoRef.current) {
@@ -125,8 +109,19 @@ function VideoChatRoom({ roomId, userId }) {
 
     peer.on("error", (err) => {
       console.error("Peer error:", err);
-      setError("Bağlantı hatası oluştu. Sayfayı yenileyin.");
+      setError("Bağlantı hatası. Sayfayı yenileyin.");
     });
+  }
+
+  function processQueuedSignals() {
+    queuedSignals.current.forEach(sig => {
+      try {
+        peerRef.current.signal(sig);
+      } catch (err) {
+        console.warn("Queued signal işleminde hata:", err);
+      }
+    });
+    queuedSignals.current = [];
   }
 
   return (
