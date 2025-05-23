@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 
+// Firebase config bilgilerin (proje ayarlarından alınmıştır)
 const firebaseConfig = {
   apiKey: "AIzaSyC_aWExssb1KCUB7GwVFGB-Pq6cAGRReqM",
   authDomain: "timegain-49de6.firebaseapp.com",
@@ -12,8 +13,12 @@ const firebaseConfig = {
   databaseURL: "https://timegain-49de6-default-rtdb.firebaseio.com"
 };
 
+// Firebase uygulamasını başlat
 const app = initializeApp(firebaseConfig);
 
+// Firebase servisleri
 export const auth = getAuth(app);
 export const db = getDatabase(app);
+
+// Anonim kullanıcı girişi
 export const loginAnonymously = () => signInAnonymously(auth);

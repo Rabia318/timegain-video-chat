@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
 import { db } from "../firebase/firebase";
-import { ref, push, onChildAdded, off, get, child } from "firebase/database";
+import { ref, push, onChildAdded, off, get } from "firebase/database";
 
 function VideoChatRoom({ roomId, userId }) {
   const localVideoRef = useRef(null);
@@ -16,7 +16,7 @@ function VideoChatRoom({ roomId, userId }) {
   useEffect(() => {
     if (!started) return;
 
-    // Firebase referansı
+    // Firebase sinyal yolu
     signalsRef.current = ref(db, `rooms/${roomId}/signals`);
 
     // Kamerayı aç
@@ -27,7 +27,7 @@ function VideoChatRoom({ roomId, userId }) {
           localVideoRef.current.srcObject = mediaStream;
         }
 
-        // İlk kullanıcıyı belirle: eğer hiç sinyal yoksa initiator
+        // İlk kullanıcıyı belirle: eğer sinyal yoksa initiator'dur
         const snapshot = await get(signalsRef.current);
         const isInitiator = !snapshot.exists();
 
@@ -64,7 +64,7 @@ function VideoChatRoom({ roomId, userId }) {
 
     peerRef.current = peer;
 
-    // Signal oluştuğunda Firebase'e yaz
+    // Signal oluşturulunca Firebase'e yaz
     peer.on("signal", (data) => {
       push(signalsRef.current, {
         from: userId,
@@ -72,7 +72,7 @@ function VideoChatRoom({ roomId, userId }) {
       });
     });
 
-    // Firebase'deki signal'ları dinle
+    // Firebase'deki diğer kullanıcıdan gelen sinyalleri dinle
     onChildAdded(signalsRef.current, (snapshot) => {
       const msg = snapshot.val();
       if (msg.from !== userId) {
@@ -96,12 +96,15 @@ function VideoChatRoom({ roomId, userId }) {
   return (
     <div style={{ maxWidth: 700, margin: "30px auto", padding: 20 }}>
       <h2>Oda: {roomId}</h2>
+
       {!started && (
         <button onClick={() => { setStarted(true); setError(""); }}>
           Kamerayı Aç ve Bağlan
         </button>
       )}
+
       {error && <p style={{ color: "red" }}>{error}</p>}
+
       {started && (
         <div style={{ display: "flex", justifyContent: "space-around", marginTop: 20 }}>
           <div>
