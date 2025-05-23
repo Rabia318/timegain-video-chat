@@ -1,21 +1,34 @@
 import React, { useEffect, useState } from "react";
-import { BrowserRouter as Router, Routes, Route, useParams, useNavigate } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  useParams,
+  useNavigate,
+} from "react-router-dom";
 import VideoChatRoom from "./components/VideoChatRoom";
-import { auth, loginAnonymously } from './firebase/firebase';
+import { auth, loginAnonymously } from "./firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
+// Oda sayfası, URL'den roomId alıp VideoChatRoom bileşenine aktarır
 function RoomWrapper({ user }) {
   const { roomId } = useParams();
   return <VideoChatRoom roomId={roomId} userId={user.uid} />;
 }
 
-function Home({ user }) {
+// Anasayfa - oda ID girişi ve yönlendirme
+function Home() {
   const [inputRoomId, setInputRoomId] = useState("");
   const navigate = useNavigate();
 
   const handleJoin = () => {
-    if (inputRoomId.trim() !== "") {
-      navigate(`/room/${inputRoomId.trim()}`);
+    const roomId = inputRoomId.trim();
+    if (roomId) {
+      navigate(`/room/${roomId}`);
+    } else {
+      // Yeni bir oda ID oluşturulabilir
+      const newRoomId = Math.random().toString(36).substring(2, 10);
+      navigate(`/room/${newRoomId}`);
     }
   };
 
@@ -24,34 +37,42 @@ function Home({ user }) {
       <h2>Görüntülü Odaya Katıl veya Oda Oluştur</h2>
       <input
         type="text"
-        placeholder="Oda ID gir veya yeni oda için boş bırak"
+        placeholder="Oda ID gir veya boş bırak"
         value={inputRoomId}
         onChange={(e) => setInputRoomId(e.target.value)}
         style={{ padding: "8px", fontSize: "16px", width: "250px" }}
       />
       <button
         onClick={handleJoin}
-        style={{ marginLeft: "10px", padding: "8px 16px", fontSize: "16px" }}
+        style={{
+          marginLeft: "10px",
+          padding: "8px 16px",
+          fontSize: "16px",
+        }}
       >
         Katıl
       </button>
+      <p style={{ marginTop: "15px", fontStyle: "italic" }}>
+        Yeni oda oluşturmak için boş bırak.
+      </p>
     </div>
   );
 }
 
+// Uygulama ana bileşeni
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, currentUser => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         setLoading(false);
       } else {
         loginAnonymously()
-          .catch(err => {
+          .catch((err) => {
             console.error("Anonim giriş hatası:", err);
             setError(err.message);
             setLoading(false);
@@ -69,7 +90,7 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Home user={user} />} />
+        <Route path="/" element={<Home />} />
         <Route path="/room/:roomId" element={<RoomWrapper user={user} />} />
       </Routes>
     </Router>
