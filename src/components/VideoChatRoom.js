@@ -1,30 +1,52 @@
 import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
 import { db } from "../firebase/firebase";
-import { ref, push, onChildAdded } from "firebase/database";
+import { ref, push, onChildAdded, get } from "firebase/database";
 
 function VideoChatRoom({ roomId, userId }) {
-  const localVideoRef = useRef();
-  const remoteVideoRef = useRef();
-  const peerRef = useRef();
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const peerRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [isStarted, setIsStarted] = useState(false);
 
+  // Kamera ve mikrofon erişimini başlat
+  function startMedia() {
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then(mediaStream => {
+        setStream(mediaStream);
+        setIsStarted(true);
+      })
+      .catch(err => {
+        console.error("Kamera/mikrofon erişim hatası:", err);
+        alert("Kamera ve mikrofona erişim izni vermeniz gerekiyor.");
+      });
+  }
+
+  // stream geldiğinde yerel videoyu bağla
+  useEffect(() => {
+    if (localVideoRef.current && stream) {
+      localVideoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  // Peer bağlantısı kur
   useEffect(() => {
     if (!isStarted || !stream) return;
 
     const signalsRef = ref(db, `rooms/${roomId}/signals`);
-    const initiatorCheckRef = ref(db, `rooms/${roomId}/initiator`);
+    const initiatorRef = ref(db, `rooms/${roomId}/initiator`);
 
-    let isInitiator = false;
+    let isInitiator = true;
 
-    // İlk kullanıcıyı belirle
-    onChildAdded(initiatorCheckRef, snapshot => {
-      isInitiator = false;
-    });
+    get(initiatorRef).then(snapshot => {
+      if (snapshot.exists()) {
+        isInitiator = false;
+      }
+      // Kendini listeye ekle
+      push(initiatorRef, userId);
 
-    push(initiatorCheckRef, userId).then(() => {
-      isInitiator = true;
       startPeer(stream, isInitiator, signalsRef);
     });
 
@@ -38,26 +60,11 @@ function VideoChatRoom({ roomId, userId }) {
     };
   }, [isStarted, stream]);
 
-  function startMedia() {
-    navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
-      .then(mediaStream => {
-        setStream(mediaStream);
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = mediaStream;
-        }
-        setIsStarted(true);
-      })
-      .catch(err => {
-        console.error("Kamera/mikrofon erişim hatası:", err);
-        alert("Kamera ve mikrofon erişimini lütfen izin veriniz.");
-      });
-  }
-
+  // Peer objesini oluştur
   function startPeer(mediaStream, isInitiator, signalsRef) {
     const peer = new Peer({
       initiator: isInitiator,
-      trickle: true, // ÖNEMLİ: Bağlantının sorunsuz kurulması için
+      trickle: true,
       stream: mediaStream,
       config: {
         iceServers: [
@@ -74,7 +81,6 @@ function VideoChatRoom({ roomId, userId }) {
     peerRef.current = peer;
 
     peer.on("signal", data => {
-      console.log("Signal gönderildi:", data);
       push(signalsRef, {
         from: userId,
         signal: data
@@ -84,20 +90,18 @@ function VideoChatRoom({ roomId, userId }) {
     onChildAdded(signalsRef, snapshot => {
       const msg = snapshot.val();
       if (msg.from !== userId) {
-        console.log("Karşıdan signal geldi:", msg);
         peer.signal(msg.signal);
       }
     });
 
     peer.on("stream", remoteStream => {
-      console.log("Karşı tarafın yayını geldi.");
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
       }
     });
 
     peer.on("error", err => {
-      console.error("Peer error:", err);
+      console.error("Peer hatası:", err);
     });
   }
 
@@ -116,7 +120,7 @@ function VideoChatRoom({ roomId, userId }) {
             playsInline
             style={{ width: 300 }}
           />
-          <h3>Karşı taraf</h3>
+          <h3>Karşı Taraf</h3>
           <video
             ref={remoteVideoRef}
             autoPlay
