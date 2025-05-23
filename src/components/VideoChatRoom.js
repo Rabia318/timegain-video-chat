@@ -13,6 +13,9 @@ function VideoChatRoom({ roomId, userId }) {
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
 
+  // Sinyal kuyruğu
+  const signalQueue = useRef([]);
+
   useEffect(() => {
     if (!started) return;
 
@@ -42,6 +45,7 @@ function VideoChatRoom({ roomId, userId }) {
       if (peerRef.current) peerRef.current.destroy();
       if (stream) stream.getTracks().forEach((track) => track.stop());
       if (signalsRef.current) off(signalsRef.current);
+      signalQueue.current = [];
     };
   }, [started]);
 
@@ -72,13 +76,32 @@ function VideoChatRoom({ roomId, userId }) {
       });
     });
 
-    // Firebase'deki diğer kullanıcıdan gelen sinyalleri dinle
+    // Firebase'deki diğer kullanıcıdan gelen sinyalleri dinle ve kuyruğa al
     onChildAdded(signalsRef.current, (snapshot) => {
       const msg = snapshot.val();
       if (msg.from !== userId) {
-        peer.signal(msg.signal);
+        signalQueue.current.push(msg.signal);
+        processSignalQueue();
       }
     });
+
+    // Kuyruktaki sinyalleri sırayla işle
+    function processSignalQueue() {
+      if (!peerRef.current || signalQueue.current.length === 0) return;
+
+      try {
+        const signal = signalQueue.current.shift();
+        peerRef.current.signal(signal);
+
+        if (signalQueue.current.length > 0) {
+          setTimeout(processSignalQueue, 100);
+        }
+      } catch (err) {
+        console.warn("Signal işlenirken hata:", err);
+        // İstersen hata durumunda sinyali tekrar kuyruğa atabilirsin
+        // signalQueue.current.unshift(signal);
+      }
+    }
 
     // Karşı tarafın stream'i geldiğinde göster
     peer.on("stream", (remoteStream) => {
