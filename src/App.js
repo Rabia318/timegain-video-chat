@@ -10,13 +10,11 @@ import VideoChatRoom from "./components/VideoChatRoom";
 import { auth, loginAnonymously } from "./firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
-// Oda sayfası, URL'den roomId alıp VideoChatRoom bileşenine aktarır
 function RoomWrapper({ user }) {
   const { roomId } = useParams();
   return <VideoChatRoom roomId={roomId} userId={user.uid} />;
 }
 
-// Anasayfa - oda ID girişi ve yönlendirme
 function Home() {
   const [inputRoomId, setInputRoomId] = useState("");
   const navigate = useNavigate();
@@ -26,7 +24,6 @@ function Home() {
     if (roomId) {
       navigate(`/room/${roomId}`);
     } else {
-      // Yeni bir oda ID oluşturulabilir
       const newRoomId = Math.random().toString(36).substring(2, 10);
       navigate(`/room/${newRoomId}`);
     }
@@ -59,7 +56,6 @@ function Home() {
   );
 }
 
-// Uygulama ana bileşeni
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);

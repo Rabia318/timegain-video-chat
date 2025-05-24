@@ -3,8 +3,7 @@ import Peer from "simple-peer";
 import { db } from "../firebase/firebase";
 import { ref, push, onChildAdded, off, get } from "firebase/database";
 
-function VideoChatRoom({ roomId }) {
-  const userId = useRef(crypto.randomUUID()).current; // Otomatik benzersiz ID
+function VideoChatRoom({ roomId, userId }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
