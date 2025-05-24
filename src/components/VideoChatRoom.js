@@ -9,6 +9,7 @@ function VideoChatRoom({ roomId, userId }) {
   const peerRef = useRef(null);
   const signalsRef = useRef(null);
   const signalQueue = useRef([]);
+  const processingSignal = useRef(false);
 
   const [stream, setStream] = useState(null);
   const [started, setStarted] = useState(false);
@@ -78,19 +79,41 @@ function VideoChatRoom({ roomId, userId }) {
       }
     });
 
-    function processSignalQueue() {
+    async function processSignalQueue() {
+      if (processingSignal.current) return;  // İşlem devam ediyorsa çık
       if (!peerRef.current || signalQueue.current.length === 0) return;
 
-      try {
-        const signal = signalQueue.current.shift();
-        peerRef.current.signal(signal);
+      processingSignal.current = true;
 
-        if (signalQueue.current.length > 0) {
-          setTimeout(processSignalQueue, 100);
+      while (signalQueue.current.length > 0) {
+        const signal = signalQueue.current[0];
+
+        try {
+          // Signal türü offer/answer/ice için kontrol:
+          // 'signal.type' genellikle 'offer' veya 'answer' içerir, yoksa ice candidate olabilir
+          if (signal.type === "answer" && peerRef.current.signalingState !== "have-local-offer") {
+            // Answer geldi ama local offer yoksa atla, bağlantı hatası çıkıyor
+            console.warn("Cevap sinyali işlenemedi: uygun durumda değil.");
+            signalQueue.current.shift(); // Kuyruktan çıkar ve devam et
+            continue;
+          }
+
+          if (signal.type === "offer" && peerRef.current.signalingState === "have-remote-offer") {
+            // Tekrar offer geldi, muhtemelen hata, bekle
+            console.warn("Tekrar offer geldi, işlenmiyor.");
+            break; // Döngüden çık, yeni sinyal bekle
+          }
+
+          peerRef.current.signal(signal);
+          signalQueue.current.shift(); // Başarıyla işlenen sinyal kuyruktan çıkar
+        } catch (err) {
+          console.warn("Signal işlenirken hata:", err);
+          // Eğer hata alıyorsak, sinyali işleme bırak, ve biraz bekle
+          break;
         }
-      } catch (err) {
-        console.warn("Signal işlenirken hata:", err);
       }
+
+      processingSignal.current = false;
     }
 
     peer.on("stream", (remoteStream) => {
