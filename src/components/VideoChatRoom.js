@@ -25,13 +25,18 @@ function VideoChatRoom({ roomId, userId }) {
 
     set(usersRef, true).catch(err => console.error("Kullanıcı eklenirken hata:", err));
 
+    // Kamera ve mikrofon izni isteniyor
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then(async (mediaStream) => {
+        // İzin verildi, hata mesajını temizle
+        setError("");
+
         setStream(mediaStream);
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = mediaStream;
         }
 
+        // Başlatıcı kontrolü
         const initiatorSnap = await get(initiatorRef);
         if (!initiatorSnap.exists()) {
           await set(initiatorRef, userId);
@@ -43,7 +48,7 @@ function VideoChatRoom({ roomId, userId }) {
         initPeer(mediaStream, isInitiatorRef.current);
       })
       .catch((err) => {
-        console.error("Kamera/mikrofon hatası:", err);
+        console.error("Kamera/mikrofon hatası detay:", err);
         setError("Lütfen kamera ve mikrofona erişime izin verin.");
       });
 
@@ -69,7 +74,7 @@ function VideoChatRoom({ roomId, userId }) {
         })
         .catch(err => console.error("Kullanıcı çıkışında hata:", err));
     };
-  }, [started]);
+  }, [started, stream, roomId, userId]);
 
   const initPeer = (mediaStream, isInitiator) => {
     const peer = new Peer({
@@ -127,7 +132,7 @@ function VideoChatRoom({ roomId, userId }) {
         const state = peerRef.current._pc?.signalingState;
 
         if (signal.type === "answer" && state !== "have-local-offer") {
-          console.warn("Uygunsuz durumda answer sinyali alındı. Atlaniyor.");
+          console.warn("Uygunsuz durumda answer sinyali alındı. Atlanıyor.");
           signalQueue.current.shift();
           continue;
         }
