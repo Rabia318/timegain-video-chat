@@ -27,10 +27,8 @@ function VideoChatRoom({ roomId, userId }) {
           localVideoRef.current.srcObject = mediaStream;
         }
 
-        // Oda sinyallerini oku ve ilk giren mi kontrol et
         const snapshot = await get(signalsRef.current);
         const isInitiator = !snapshot.exists();
-
         initPeer(mediaStream, isInitiator);
       })
       .catch((err) => {
@@ -65,7 +63,6 @@ function VideoChatRoom({ roomId, userId }) {
 
     peerRef.current = peer;
 
-    // Signal oluştuğunda Firebase RTDB'ye gönder
     peer.on("signal", (data) => {
       push(signalsRef.current, {
         from: userId,
@@ -73,7 +70,6 @@ function VideoChatRoom({ roomId, userId }) {
       });
     });
 
-    // Gelen sinyalleri dinle ve kuyruğa ekle
     onChildAdded(signalsRef.current, (snapshot) => {
       const msg = snapshot.val();
       if (msg.from !== userId) {
@@ -82,7 +78,6 @@ function VideoChatRoom({ roomId, userId }) {
       }
     });
 
-    // Uzaktaki medya akışını yakala ve video elementine ata
     peer.on("stream", (remoteStream) => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
@@ -95,7 +90,6 @@ function VideoChatRoom({ roomId, userId }) {
     });
   };
 
-  // Sinyalleri sırayla işleyen fonksiyon
   const processSignalQueue = async () => {
     if (isProcessing.current || !peerRef.current) return;
     isProcessing.current = true;
