@@ -32,7 +32,6 @@ function VideoChatRoom({ roomId, userId }) {
           localVideoRef.current.srcObject = mediaStream;
         }
 
-        // Gelişmiş isInitiator kontrolü
         const initiatorSnap = await get(initiatorRef);
         if (!initiatorSnap.exists()) {
           await set(initiatorRef, userId);
