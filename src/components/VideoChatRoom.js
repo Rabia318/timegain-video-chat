@@ -25,18 +25,18 @@ function VideoChatRoom({ roomId, userId }) {
 
     set(usersRef, true).catch(err => console.error("Kullanıcı eklenirken hata:", err));
 
-    // Kamera ve mikrofon izni isteniyor
+    let activeStream = null;
+
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then(async (mediaStream) => {
-        // İzin verildi, hata mesajını temizle
         setError("");
-
         setStream(mediaStream);
+        activeStream = mediaStream;
+
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = mediaStream;
         }
 
-        // Başlatıcı kontrolü
         const initiatorSnap = await get(initiatorRef);
         if (!initiatorSnap.exists()) {
           await set(initiatorRef, userId);
@@ -48,16 +48,24 @@ function VideoChatRoom({ roomId, userId }) {
         initPeer(mediaStream, isInitiatorRef.current);
       })
       .catch((err) => {
-        console.error("Kamera/mikrofon hatası detay:", err);
+        console.error("Kamera/mikrofon hatası:", err);
         setError("Lütfen kamera ve mikrofona erişime izin verin.");
       });
 
     return () => {
-      if (peerRef.current) peerRef.current.destroy();
-      if (stream) stream.getTracks().forEach((track) => track.stop());
+      // Peer ve stream temizliği
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop());
+        activeStream = null;
+      }
       if (signalsRef.current) off(signalsRef.current);
       signalQueue.current = [];
 
+      // Kullanıcıyı sil ve oda boşsa temizle
       remove(usersRef)
         .then(() => {
           const roomUsersRef = ref(db, `rooms/${roomId}/users`);
@@ -74,7 +82,7 @@ function VideoChatRoom({ roomId, userId }) {
         })
         .catch(err => console.error("Kullanıcı çıkışında hata:", err));
     };
-  }, [started, stream, roomId, userId]);
+  }, [started, roomId, userId]);
 
   const initPeer = (mediaStream, isInitiator) => {
     const peer = new Peer({
@@ -132,7 +140,7 @@ function VideoChatRoom({ roomId, userId }) {
         const state = peerRef.current._pc?.signalingState;
 
         if (signal.type === "answer" && state !== "have-local-offer") {
-          console.warn("Uygunsuz durumda answer sinyali alındı. Atlanıyor.");
+          console.warn("Uygunsuz durumda answer sinyali alındı. Atlaniyor.");
           signalQueue.current.shift();
           continue;
         }
