@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
 import { db } from "../firebase/firebase";
-import { ref, push, onChildAdded, off, get } from "firebase/database";
+import { ref, push, onChildAdded, off, get, set, remove, onValue } from "firebase/database";
 
 function VideoChatRoom({ roomId, userId }) {
   const localVideoRef = useRef(null);
@@ -18,7 +18,12 @@ function VideoChatRoom({ roomId, userId }) {
   useEffect(() => {
     if (!started) return;
 
+    // Referanslar
     signalsRef.current = ref(db, `rooms/${roomId}/signals`);
+    const usersRef = ref(db, `rooms/${roomId}/users/${userId}`);
+
+    // Odaya kullanıcı ekle
+    set(usersRef, true).catch(err => console.error("Kullanıcı eklenirken hata:", err));
 
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then(async (mediaStream) => {
@@ -36,11 +41,25 @@ function VideoChatRoom({ roomId, userId }) {
         setError("Lütfen kamera ve mikrofona erişime izin verin.");
       });
 
+    // Temizlik - çıkışta kullanıcıyı sil ve oda boşsa sinyalleri temizle
     return () => {
       if (peerRef.current) peerRef.current.destroy();
       if (stream) stream.getTracks().forEach((track) => track.stop());
       if (signalsRef.current) off(signalsRef.current);
       signalQueue.current = [];
+
+      remove(usersRef)
+        .then(() => {
+          const roomUsersRef = ref(db, `rooms/${roomId}/users`);
+          onValue(roomUsersRef, (snapshot) => {
+            if (!snapshot.exists()) {
+              // Oda boşsa sinyalleri temizle
+              const signalsRefToRemove = ref(db, `rooms/${roomId}/signals`);
+              remove(signalsRefToRemove).catch(err => console.error("Sinyaller temizlenirken hata:", err));
+            }
+          }, { onlyOnce: true });
+        })
+        .catch(err => console.error("Kullanıcı çıkışında hata:", err));
     };
   }, [started]);
 
