@@ -9,12 +9,13 @@ function VideoChatRoom({ roomId, userId }) {
   const peerRef = useRef(null);
   const signalsRef = useRef(null);
   const signalQueue = useRef([]);
-  const processingSignal = useRef(false);
+  const isProcessing = useRef(false);
 
   const [stream, setStream] = useState(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
 
+  // Bağlantı başladığında medya ve peer başlat
   useEffect(() => {
     if (!started) return;
 
@@ -34,7 +35,7 @@ function VideoChatRoom({ roomId, userId }) {
       })
       .catch((err) => {
         console.error("Kamera/mikrofon hatası:", err);
-        setError("Lütfen kamera ve mikrofona izin verin.");
+        setError("Lütfen kamera ve mikrofona erişime izin verin.");
       });
 
     return () => {
@@ -45,7 +46,8 @@ function VideoChatRoom({ roomId, userId }) {
     };
   }, [started]);
 
-  function initPeer(mediaStream, isInitiator) {
+  // Peer bağlantısını başlat
+  const initPeer = (mediaStream, isInitiator) => {
     const peer = new Peer({
       initiator: isInitiator,
       trickle: false,
@@ -64,6 +66,7 @@ function VideoChatRoom({ roomId, userId }) {
 
     peerRef.current = peer;
 
+    // Signal oluştuğunda veritabanına gönder
     peer.on("signal", (data) => {
       push(signalsRef.current, {
         from: userId,
@@ -71,6 +74,7 @@ function VideoChatRoom({ roomId, userId }) {
       });
     });
 
+    // Gelen sinyalleri sıraya al
     onChildAdded(signalsRef.current, (snapshot) => {
       const msg = snapshot.val();
       if (msg.from !== userId) {
@@ -79,43 +83,7 @@ function VideoChatRoom({ roomId, userId }) {
       }
     });
 
-    async function processSignalQueue() {
-      if (processingSignal.current) return;  // İşlem devam ediyorsa çık
-      if (!peerRef.current || signalQueue.current.length === 0) return;
-
-      processingSignal.current = true;
-
-      while (signalQueue.current.length > 0) {
-        const signal = signalQueue.current[0];
-
-        try {
-          // Signal türü offer/answer/ice için kontrol:
-          // 'signal.type' genellikle 'offer' veya 'answer' içerir, yoksa ice candidate olabilir
-          if (signal.type === "answer" && peerRef.current.signalingState !== "have-local-offer") {
-            // Answer geldi ama local offer yoksa atla, bağlantı hatası çıkıyor
-            console.warn("Cevap sinyali işlenemedi: uygun durumda değil.");
-            signalQueue.current.shift(); // Kuyruktan çıkar ve devam et
-            continue;
-          }
-
-          if (signal.type === "offer" && peerRef.current.signalingState === "have-remote-offer") {
-            // Tekrar offer geldi, muhtemelen hata, bekle
-            console.warn("Tekrar offer geldi, işlenmiyor.");
-            break; // Döngüden çık, yeni sinyal bekle
-          }
-
-          peerRef.current.signal(signal);
-          signalQueue.current.shift(); // Başarıyla işlenen sinyal kuyruktan çıkar
-        } catch (err) {
-          console.warn("Signal işlenirken hata:", err);
-          // Eğer hata alıyorsak, sinyali işleme bırak, ve biraz bekle
-          break;
-        }
-      }
-
-      processingSignal.current = false;
-    }
-
+    // Remote stream geldiğinde video göster
     peer.on("stream", (remoteStream) => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
@@ -123,10 +91,42 @@ function VideoChatRoom({ roomId, userId }) {
     });
 
     peer.on("error", (err) => {
-      console.error("Peer error:", err);
-      setError("Bağlantı hatası oluştu. Sayfayı yenileyin.");
+      console.error("Peer hatası:", err);
+      setError("Bağlantı sırasında bir hata oluştu.");
     });
-  }
+  };
+
+  // Kuyruktaki sinyalleri sırayla işle
+  const processSignalQueue = async () => {
+    if (isProcessing.current || !peerRef.current) return;
+    isProcessing.current = true;
+
+    while (signalQueue.current.length > 0) {
+      const signal = signalQueue.current[0];
+      try {
+        const state = peerRef.current._pc?.signalingState;
+
+        if (signal.type === "answer" && state !== "have-local-offer") {
+          console.warn("Uygunsuz durumda answer sinyali alındı. Atlaniyor.");
+          signalQueue.current.shift();
+          continue;
+        }
+
+        if (signal.type === "offer" && state !== "stable") {
+          console.warn("Offer sinyali için uygun durumda değil. Bekleniyor.");
+          break;
+        }
+
+        peerRef.current.signal(signal);
+        signalQueue.current.shift();
+      } catch (err) {
+        console.warn("Signal işlenirken hata:", err);
+        break;
+      }
+    }
+
+    isProcessing.current = false;
+  };
 
   return (
     <div style={{ maxWidth: 700, margin: "30px auto", padding: 20 }}>
