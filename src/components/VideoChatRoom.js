@@ -10,6 +10,7 @@ function VideoChatRoom({ roomId, userId }) {
   const signalsRef = useRef(null);
   const signalQueue = useRef([]);
   const isProcessing = useRef(false);
+  const isInitiatorRef = useRef(false);
 
   const [stream, setStream] = useState(null);
   const [started, setStarted] = useState(false);
@@ -18,11 +19,10 @@ function VideoChatRoom({ roomId, userId }) {
   useEffect(() => {
     if (!started) return;
 
-    // Referanslar
     signalsRef.current = ref(db, `rooms/${roomId}/signals`);
     const usersRef = ref(db, `rooms/${roomId}/users/${userId}`);
+    const initiatorRef = ref(db, `rooms/${roomId}/initiator`);
 
-    // Odaya kullanıcı ekle
     set(usersRef, true).catch(err => console.error("Kullanıcı eklenirken hata:", err));
 
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
@@ -32,16 +32,22 @@ function VideoChatRoom({ roomId, userId }) {
           localVideoRef.current.srcObject = mediaStream;
         }
 
-        const snapshot = await get(signalsRef.current);
-        const isInitiator = !snapshot.exists();
-        initPeer(mediaStream, isInitiator);
+        // Gelişmiş isInitiator kontrolü
+        const initiatorSnap = await get(initiatorRef);
+        if (!initiatorSnap.exists()) {
+          await set(initiatorRef, userId);
+          isInitiatorRef.current = true;
+        } else {
+          isInitiatorRef.current = initiatorSnap.val() === userId;
+        }
+
+        initPeer(mediaStream, isInitiatorRef.current);
       })
       .catch((err) => {
         console.error("Kamera/mikrofon hatası:", err);
         setError("Lütfen kamera ve mikrofona erişime izin verin.");
       });
 
-    // Temizlik - çıkışta kullanıcıyı sil ve oda boşsa sinyalleri temizle
     return () => {
       if (peerRef.current) peerRef.current.destroy();
       if (stream) stream.getTracks().forEach((track) => track.stop());
@@ -51,11 +57,14 @@ function VideoChatRoom({ roomId, userId }) {
       remove(usersRef)
         .then(() => {
           const roomUsersRef = ref(db, `rooms/${roomId}/users`);
-          onValue(roomUsersRef, (snapshot) => {
+          onValue(roomUsersRef, async (snapshot) => {
             if (!snapshot.exists()) {
-              // Oda boşsa sinyalleri temizle
-              const signalsRefToRemove = ref(db, `rooms/${roomId}/signals`);
-              remove(signalsRefToRemove).catch(err => console.error("Sinyaller temizlenirken hata:", err));
+              await remove(ref(db, `rooms/${roomId}/signals`)).catch(err =>
+                console.error("Sinyaller temizlenirken hata:", err)
+              );
+              await remove(ref(db, `rooms/${roomId}/initiator`)).catch(err =>
+                console.error("Initiator temizlenirken hata:", err)
+              );
             }
           }, { onlyOnce: true });
         })
