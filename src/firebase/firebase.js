@@ -1,5 +1,3 @@
-// src/firebase/firebase.js
-
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { getDatabase } from "firebase/database";
@@ -15,12 +13,12 @@ const firebaseConfig = {
   appId: "1:336582098261:web:6679e3fc20f0cd1eed143dc"
 };
 
-// Uygulamayı başlat
+// Firebase uygulamasını başlat
 const app = initializeApp(firebaseConfig);
 
-// Yetkilendirme ve veritabanı servislerini oluştur
+// Yetkilendirme ve Realtime Database servislerini oluştur
 export const auth = getAuth(app);
 export const db = getDatabase(app);
 
-// Anonim giriş fonksiyonu (isteğe bağlı kullanım)
+// Anonim kullanıcı girişi fonksiyonu
 export const loginAnonymously = () => signInAnonymously(auth);
