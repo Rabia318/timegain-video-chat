@@ -1,15 +1,15 @@
+// src/components/VideoChatRoom.js
 import React, { useEffect, useRef, useState } from "react";
 import { db } from "../firebase/firebase";
-import { ref, onValue, push, set, remove } from "firebase/database";
-import "../index.css";
+import { ref, onValue, set, remove } from "firebase/database";
 
 const VideoChatRoom = ({ roomId, userId }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
+
   const pc = useRef(null);
-  const localStream = useRef(null);
 
   useEffect(() => {
     if (!started) return;
@@ -22,8 +22,7 @@ const VideoChatRoom = ({ roomId, userId }) => {
 
     pc.current.onicecandidate = (event) => {
       if (event.candidate) {
-        const candidateRef = ref(db, `rooms/${roomId}/candidates/${userId}`);
-        push(candidateRef, event.candidate.toJSON());
+        set(ref(db, `rooms/${roomId}/candidates/${userId}`), event.candidate.toJSON());
       }
     };
 
@@ -35,13 +34,10 @@ const VideoChatRoom = ({ roomId, userId }) => {
 
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
-      .then(async (stream) => {
-        localStream.current = stream;
-
+      .then((stream) => {
         stream.getTracks().forEach((track) => {
           pc.current.addTrack(track, stream);
         });
-
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
@@ -50,68 +46,92 @@ const VideoChatRoom = ({ roomId, userId }) => {
         onValue(signalRef, async (snapshot) => {
           const data = snapshot.val();
           if (!data) {
+            // Bu kullanıcı başlatıcı
             const offer = await pc.current.createOffer();
             await pc.current.setLocalDescription(offer);
             await set(signalRef, { offer });
           } else if (data.offer && !data.answer) {
+            // Bu kullanıcı alıcı
             await pc.current.setRemoteDescription(data.offer);
             const answer = await pc.current.createAnswer();
             await pc.current.setLocalDescription(answer);
             await set(signalRef, { ...data, answer });
-          } else if (data.answer && !pc.current.remoteDescription) {
+          } else if (data.answer && !pc.current.currentRemoteDescription) {
+            // Başlatıcı cevabı alır
             await pc.current.setRemoteDescription(data.answer);
           }
         });
-
-        const otherCandidatesRef = ref(
-          db,
-          `rooms/${roomId}/candidates/${userId === "user1" ? "user2" : "user1"}`
-        );
-
-        onValue(otherCandidatesRef, (snapshot) => {
-          snapshot.forEach((child) => {
-            const candidate = new RTCIceCandidate(child.val());
-            pc.current.addIceCandidate(candidate);
-          });
-        });
       })
       .catch((err) => {
-        console.error("Media error:", err);
+        console.error("Kamera/mikrofon hatası:", err);
         setError("Kamera/mikrofon erişimi reddedildi.");
       });
 
     return () => {
-      if (localStream.current) {
-        localStream.current.getTracks().forEach((t) => t.stop());
-      }
       remove(ref(db, `rooms/${roomId}/candidates/${userId}`));
       pc.current.close();
     };
-  }, [started, roomId, userId]);
+  }, [started]);
 
   return (
-    <div className="room-container">
-      <h2 className="room-title">Oda: {roomId}</h2>
+    <div style={{
+      maxWidth: "900px",
+      margin: "30px auto",
+      padding: "20px",
+      borderRadius: "12px",
+      backgroundColor: "#fff",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+    }}>
+      <h2 style={{ textAlign: "center" }}>Oda: {roomId}</h2>
 
       {!started && (
-        <div className="centered">
-          <button className="btn-primary" onClick={() => setStarted(true)}>
+        <div style={{ textAlign: "center", marginTop: "20px" }}>
+          <button
+            onClick={() => { setStarted(true); setError(""); }}
+            style={{
+              padding: "10px 24px",
+              fontSize: "16px",
+              backgroundColor: "#007bff",
+              color: "white",
+              borderRadius: "8px",
+              cursor: "pointer"
+            }}
+          >
             Kamerayı Aç ve Bağlan
           </button>
         </div>
       )}
 
-      {error && <p className="error-text">{error}</p>}
+      {error && (
+        <p style={{ color: "red", textAlign: "center", marginTop: "15px" }}>
+          {error}
+        </p>
+      )}
 
       {started && (
-        <div className="video-wrapper">
-          <div className="video-box">
+        <div style={{
+          display: "flex",
+          justifyContent: "space-around",
+          marginTop: "30px",
+          gap: "30px"
+        }}>
+          <div style={{ textAlign: "center" }}>
             <h3>Sen</h3>
-            <video ref={localVideoRef} muted autoPlay playsInline className="video" />
+            <video ref={localVideoRef} muted autoPlay playsInline style={{
+              width: "350px",
+              height: "auto",
+              borderRadius: "12px",
+              backgroundColor: "#000"
+            }} />
           </div>
-          <div className="video-box">
+          <div style={{ textAlign: "center" }}>
             <h3>Karşı Taraf</h3>
-            <video ref={remoteVideoRef} autoPlay playsInline className="video" />
+            <video ref={remoteVideoRef} autoPlay playsInline style={{
+              width: "350px",
+              height: "auto",
+              borderRadius: "12px",
+              backgroundColor: "#000"
+            }} />
           </div>
         </div>
       )}

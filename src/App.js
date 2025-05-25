@@ -1,3 +1,4 @@
+// src/App.js
 import React, { useEffect, useState } from "react";
 import {
   BrowserRouter as Router,
@@ -9,7 +10,6 @@ import {
 import VideoChatRoom from "./components/VideoChatRoom";
 import { auth, loginAnonymously } from "./firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import "./index.css";
 
 function RoomWrapper({ user }) {
   const { roomId } = useParams();
@@ -26,21 +26,47 @@ function Home() {
   };
 
   return (
-    <div className="home-container">
-      <h1 className="home-title">🎥 TimeGain Görüntülü Sohbet</h1>
-      <div className="home-form">
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      height: "100vh",
+      background: "linear-gradient(to right, #667eea, #764ba2)",
+      color: "#fff"
+    }}>
+      <h1>🎥 TimeGain Görüntülü Sohbet</h1>
+      <div style={{ marginTop: 20 }}>
         <input
           type="text"
           placeholder="Oda ID gir (isteğe bağlı)"
           value={inputRoomId}
           onChange={(e) => setInputRoomId(e.target.value)}
-          className="input"
+          style={{
+            padding: "10px",
+            fontSize: "16px",
+            borderRadius: "8px",
+            width: "250px"
+          }}
         />
-        <button className="btn-success" onClick={handleJoin}>
+        <button
+          onClick={handleJoin}
+          style={{
+            marginLeft: "10px",
+            padding: "10px 20px",
+            fontSize: "16px",
+            backgroundColor: "#4caf50",
+            color: "white",
+            cursor: "pointer",
+            borderRadius: "8px"
+          }}
+        >
           Katıl
         </button>
       </div>
-      <p className="hint-text">Oda oluşturmak için boş bırakın.</p>
+      <p style={{ marginTop: "20px", fontStyle: "italic" }}>
+        Oda oluşturmak için boş bırakın.
+      </p>
     </div>
   );
 }
@@ -66,8 +92,8 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  if (loading) return <div className="loading">Giriş yapılıyor...</div>;
-  if (error) return <div className="error-text">Hata: {error}</div>;
+  if (loading) return <div>Giriş yapılıyor...</div>;
+  if (error) return <div>Hata: {error}</div>;
   if (!user) return <div>Kullanıcı bulunamadı!</div>;
 
   return (
