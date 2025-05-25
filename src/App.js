@@ -20,26 +20,30 @@ function Home() {
   const navigate = useNavigate();
 
   const handleJoin = () => {
-    const roomId = inputRoomId.trim() || Math.random().toString(36).substring(2, 10);
+    const roomId =
+      inputRoomId.trim() || Math.random().toString(36).substring(2, 10);
     navigate(`/room/${roomId}`);
   };
 
   return (
-    <div className="home-container">
-      <h1>🎥 TimeGain Görüntülü Sohbet</h1>
-      <div className="input-group">
+    <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-r from-blue-300 to-blue-500 text-white">
+      <h1 className="text-3xl font-bold mb-6">🎥 TimeGain Görüntülü Sohbet</h1>
+      <div className="flex flex-col sm:flex-row items-center">
         <input
           type="text"
           placeholder="Oda ID gir (isteğe bağlı)"
           value={inputRoomId}
           onChange={(e) => setInputRoomId(e.target.value)}
-          className="input-text"
+          className="p-2 text-lg rounded mb-4 sm:mb-0 sm:mr-4 text-black"
         />
-        <button onClick={handleJoin} className="btn-primary">
+        <button
+          onClick={handleJoin}
+          className="px-4 py-2 text-lg bg-green-500 text-white rounded hover:bg-green-600 transition"
+        >
           Katıl
         </button>
       </div>
-      <p className="info-text">Oda oluşturmak için boş bırakın.</p>
+      <p className="mt-4 italic">Oda oluşturmak için boş bırakın.</p>
     </div>
   );
 }
@@ -65,9 +69,9 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  if (loading) return <div className="loading-text">Giriş yapılıyor...</div>;
-  if (error) return <div className="error-text">Hata: {error}</div>;
-  if (!user) return <div className="error-text">Kullanıcı bulunamadı!</div>;
+  if (loading) return <div className="text-center mt-8">Giriş yapılıyor...</div>;
+  if (error) return <div className="text-center mt-8 text-red-500">Hata: {error}</div>;
+  if (!user) return <div className="text-center mt-8">Kullanıcı bulunamadı!</div>;
 
   return (
     <Router>

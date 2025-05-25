@@ -1,34 +1,13 @@
-/* Genel sayfa düzeni */
-body, html, #root {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f7f5f2; /* Krem rengi */
-  color: #334e68; /* Koyu mavi */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Özel stiller */
+body {
+  background-color: #fdfdfd;
+  font-family: 'Helvetica Neue', sans-serif;
 }
 
-/* Home sayfası */
-.home-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  background: linear-gradient(135deg, #a8dadc, #457b9d); /* açık mavi degrade */
-  color: white;
-  padding: 20px;
-  text-align: center;
+video {
+  background-color: #000;
 }
-
-.input-group {
-  margin-top: 20px;
-}
-
-.input-text {
-  padding: 10px 15px;
-  font-size: 16px;
-  border-radius: 8px;
-  border: none;
-  width: 260px;
- 
