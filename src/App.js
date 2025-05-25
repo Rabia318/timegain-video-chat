@@ -1,3 +1,4 @@
+// src/App.js
 import React, { useEffect, useState } from "react";
 import {
   BrowserRouter as Router,
@@ -20,37 +21,51 @@ function Home() {
   const navigate = useNavigate();
 
   const handleJoin = () => {
-    const roomId = inputRoomId.trim();
-    if (roomId) {
-      navigate(`/room/${roomId}`);
-    } else {
-      const newRoomId = Math.random().toString(36).substring(2, 10);
-      navigate(`/room/${newRoomId}`);
-    }
+    const roomId = inputRoomId.trim() || Math.random().toString(36).substring(2, 10);
+    navigate(`/room/${roomId}`);
   };
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h2>Görüntülü Odaya Katıl veya Oda Oluştur</h2>
-      <input
-        type="text"
-        placeholder="Oda ID gir veya boş bırak"
-        value={inputRoomId}
-        onChange={(e) => setInputRoomId(e.target.value)}
-        style={{ padding: "8px", fontSize: "16px", width: "250px" }}
-      />
-      <button
-        onClick={handleJoin}
-        style={{
-          marginLeft: "10px",
-          padding: "8px 16px",
-          fontSize: "16px",
-        }}
-      >
-        Katıl
-      </button>
-      <p style={{ marginTop: "15px", fontStyle: "italic" }}>
-        Yeni oda oluşturmak için boş bırak.
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      height: "100vh",
+      background: "linear-gradient(to right, #667eea, #764ba2)",
+      color: "#fff"
+    }}>
+      <h1>🎥 TimeGain Görüntülü Sohbet</h1>
+      <div style={{ marginTop: 20 }}>
+        <input
+          type="text"
+          placeholder="Oda ID gir (isteğe bağlı)"
+          value={inputRoomId}
+          onChange={(e) => setInputRoomId(e.target.value)}
+          style={{
+            padding: "10px",
+            fontSize: "16px",
+            borderRadius: "8px",
+            width: "250px"
+          }}
+        />
+        <button
+          onClick={handleJoin}
+          style={{
+            marginLeft: "10px",
+            padding: "10px 20px",
+            fontSize: "16px",
+            backgroundColor: "#4caf50",
+            color: "white",
+            cursor: "pointer",
+            borderRadius: "8px"
+          }}
+        >
+          Katıl
+        </button>
+      </div>
+      <p style={{ marginTop: "20px", fontStyle: "italic" }}>
+        Oda oluşturmak için boş bırakın.
       </p>
     </div>
   );
@@ -67,12 +82,10 @@ function App() {
         setUser(currentUser);
         setLoading(false);
       } else {
-        loginAnonymously()
-          .catch((err) => {
-            console.error("Anonim giriş hatası:", err);
-            setError(err.message);
-            setLoading(false);
-          });
+        loginAnonymously().catch((err) => {
+          setError(err.message);
+          setLoading(false);
+        });
       }
     });
 

@@ -1,203 +1,142 @@
+// src/components/VideoChatRoom.js
 import React, { useEffect, useRef, useState } from "react";
-import Peer from "simple-peer";
 import { db } from "../firebase/firebase";
-import { ref, push, onChildAdded, off, get, set, remove, onValue } from "firebase/database";
+import { ref, onValue, set, remove } from "firebase/database";
 
-function VideoChatRoom({ roomId, userId }) {
+const VideoChatRoom = ({ roomId, userId }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const peerRef = useRef(null);
-  const signalsRef = useRef(null);
-  const signalQueue = useRef([]);
-  const isProcessing = useRef(false);
-  const isInitiatorRef = useRef(false);
-
-  const [stream, setStream] = useState(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
+
+  const pc = useRef(null);
 
   useEffect(() => {
     if (!started) return;
 
-    signalsRef.current = ref(db, `rooms/${roomId}/signals`);
-    const usersRef = ref(db, `rooms/${roomId}/users/${userId}`);
-    const initiatorRef = ref(db, `rooms/${roomId}/initiator`);
+    const servers = {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    };
 
-    set(usersRef, true).catch(err => console.error("Kullanıcı eklenirken hata:", err));
+    pc.current = new RTCPeerConnection(servers);
 
-    let activeStream = null;
+    pc.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        set(ref(db, `rooms/${roomId}/candidates/${userId}`), event.candidate.toJSON());
+      }
+    };
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then(async (mediaStream) => {
-        setError("");
-        setStream(mediaStream);
-        activeStream = mediaStream;
+    pc.current.ontrack = (event) => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+      }
+    };
 
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        stream.getTracks().forEach((track) => {
+          pc.current.addTrack(track, stream);
+        });
         if (localVideoRef.current) {
-          localVideoRef.current.srcObject = mediaStream;
+          localVideoRef.current.srcObject = stream;
         }
 
-        const initiatorSnap = await get(initiatorRef);
-        if (!initiatorSnap.exists()) {
-          await set(initiatorRef, userId);
-          isInitiatorRef.current = true;
-        } else {
-          isInitiatorRef.current = initiatorSnap.val() === userId;
-        }
-
-        initPeer(mediaStream, isInitiatorRef.current);
+        const signalRef = ref(db, `rooms/${roomId}/signal`);
+        onValue(signalRef, async (snapshot) => {
+          const data = snapshot.val();
+          if (!data) {
+            // Bu kullanıcı başlatıcı
+            const offer = await pc.current.createOffer();
+            await pc.current.setLocalDescription(offer);
+            await set(signalRef, { offer });
+          } else if (data.offer && !data.answer) {
+            // Bu kullanıcı alıcı
+            await pc.current.setRemoteDescription(data.offer);
+            const answer = await pc.current.createAnswer();
+            await pc.current.setLocalDescription(answer);
+            await set(signalRef, { ...data, answer });
+          } else if (data.answer && !pc.current.currentRemoteDescription) {
+            // Başlatıcı cevabı alır
+            await pc.current.setRemoteDescription(data.answer);
+          }
+        });
       })
       .catch((err) => {
         console.error("Kamera/mikrofon hatası:", err);
-        setError("Lütfen kamera ve mikrofona erişime izin verin.");
+        setError("Kamera/mikrofon erişimi reddedildi.");
       });
 
     return () => {
-      // Peer ve stream temizliği
-      if (peerRef.current) {
-        peerRef.current.destroy();
-        peerRef.current = null;
-      }
-      if (activeStream) {
-        activeStream.getTracks().forEach(track => track.stop());
-        activeStream = null;
-      }
-      if (signalsRef.current) off(signalsRef.current);
-      signalQueue.current = [];
-
-      // Kullanıcıyı sil ve oda boşsa temizle
-      remove(usersRef)
-        .then(() => {
-          const roomUsersRef = ref(db, `rooms/${roomId}/users`);
-          onValue(roomUsersRef, async (snapshot) => {
-            if (!snapshot.exists()) {
-              await remove(ref(db, `rooms/${roomId}/signals`)).catch(err =>
-                console.error("Sinyaller temizlenirken hata:", err)
-              );
-              await remove(ref(db, `rooms/${roomId}/initiator`)).catch(err =>
-                console.error("Initiator temizlenirken hata:", err)
-              );
-            }
-          }, { onlyOnce: true });
-        })
-        .catch(err => console.error("Kullanıcı çıkışında hata:", err));
+      remove(ref(db, `rooms/${roomId}/candidates/${userId}`));
+      pc.current.close();
     };
-  }, [started, roomId, userId]);
-
-  const initPeer = (mediaStream, isInitiator) => {
-    const peer = new Peer({
-      initiator: isInitiator,
-      trickle: false,
-      stream: mediaStream,
-      config: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          {
-            urls: "turn:global.relay.metered.ca:443",
-            username: "openai",
-            credential: "openai"
-          }
-        ]
-      }
-    });
-
-    peerRef.current = peer;
-
-    peer.on("signal", (data) => {
-      push(signalsRef.current, {
-        from: userId,
-        signal: data,
-      });
-    });
-
-    onChildAdded(signalsRef.current, (snapshot) => {
-      const msg = snapshot.val();
-      if (msg.from !== userId) {
-        signalQueue.current.push(msg.signal);
-        processSignalQueue();
-      }
-    });
-
-    peer.on("stream", (remoteStream) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
-      }
-    });
-
-    peer.on("error", (err) => {
-      console.error("Peer hatası:", err);
-      setError("Bağlantı sırasında bir hata oluştu.");
-    });
-  };
-
-  const processSignalQueue = async () => {
-    if (isProcessing.current || !peerRef.current) return;
-    isProcessing.current = true;
-
-    while (signalQueue.current.length > 0) {
-      const signal = signalQueue.current[0];
-      try {
-        const state = peerRef.current._pc?.signalingState;
-
-        if (signal.type === "answer" && state !== "have-local-offer") {
-          console.warn("Uygunsuz durumda answer sinyali alındı. Atlaniyor.");
-          signalQueue.current.shift();
-          continue;
-        }
-
-        if (signal.type === "offer" && state !== "stable") {
-          console.warn("Offer sinyali için uygun durumda değil. Bekleniyor.");
-          break;
-        }
-
-        peerRef.current.signal(signal);
-        signalQueue.current.shift();
-      } catch (err) {
-        console.warn("Signal işlenirken hata:", err);
-        break;
-      }
-    }
-
-    isProcessing.current = false;
-  };
+  }, [started]);
 
   return (
-    <div style={{ maxWidth: 700, margin: "30px auto", padding: 20 }}>
-      <h2>Oda: {roomId}</h2>
+    <div style={{
+      maxWidth: "900px",
+      margin: "30px auto",
+      padding: "20px",
+      borderRadius: "12px",
+      backgroundColor: "#fff",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+    }}>
+      <h2 style={{ textAlign: "center" }}>Oda: {roomId}</h2>
 
       {!started && (
-        <button onClick={() => { setStarted(true); setError(""); }}>
-          Kamerayı Aç ve Bağlan
-        </button>
+        <div style={{ textAlign: "center", marginTop: "20px" }}>
+          <button
+            onClick={() => { setStarted(true); setError(""); }}
+            style={{
+              padding: "10px 24px",
+              fontSize: "16px",
+              backgroundColor: "#007bff",
+              color: "white",
+              borderRadius: "8px",
+              cursor: "pointer"
+            }}
+          >
+            Kamerayı Aç ve Bağlan
+          </button>
+        </div>
       )}
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {error && (
+        <p style={{ color: "red", textAlign: "center", marginTop: "15px" }}>
+          {error}
+        </p>
+      )}
 
       {started && (
-        <div style={{ display: "flex", justifyContent: "space-around", marginTop: 20 }}>
-          <div>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-around",
+          marginTop: "30px",
+          gap: "30px"
+        }}>
+          <div style={{ textAlign: "center" }}>
             <h3>Sen</h3>
-            <video
-              ref={localVideoRef}
-              muted
-              autoPlay
-              playsInline
-              style={{ width: 300, backgroundColor: "#000" }}
-            />
+            <video ref={localVideoRef} muted autoPlay playsInline style={{
+              width: "350px",
+              height: "auto",
+              borderRadius: "12px",
+              backgroundColor: "#000"
+            }} />
           </div>
-          <div>
+          <div style={{ textAlign: "center" }}>
             <h3>Karşı Taraf</h3>
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              style={{ width: 300, backgroundColor: "#000" }}
-            />
+            <video ref={remoteVideoRef} autoPlay playsInline style={{
+              width: "350px",
+              height: "auto",
+              borderRadius: "12px",
+              backgroundColor: "#000"
+            }} />
           </div>
         </div>
       )}
     </div>
   );
-}
+};
 
 export default VideoChatRoom;
