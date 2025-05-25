@@ -1,140 +1,136 @@
-// src/components/VideoChatRoom.js
 import React, { useEffect, useRef, useState } from "react";
-import { db } from "../firebase/firebase";
-import { ref, onValue, set, remove } from "firebase/database";
+import { useParams } from "react-router-dom";
+import { ref, onValue, set, push, remove } from "firebase/database";
+import { db, loginAnonymously } from "../firebase";
 
-const VideoChatRoom = ({ roomId, userId }) => {
+const configuration = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+};
+
+const VideoChatRoom = () => {
+  const { roomId } = useParams();
+
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const [started, setStarted] = useState(false);
-  const [error, setError] = useState("");
-
-  const pc = useRef(null);
+  const peerConnectionRef = useRef(null);
+  const [isInitiator, setIsInitiator] = useState(null);
 
   useEffect(() => {
-    if (!started) return;
+    loginAnonymously().catch((error) =>
+      console.error("Anonim giriş başarısız:", error)
+    );
+  }, []);
 
-    const servers = {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    };
+  useEffect(() => {
+    const roomRef = ref(db, `rooms/${roomId}`);
+    onValue(
+      roomRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        setIsInitiator(!data);
+      },
+      { onlyOnce: true }
+    );
+  }, [roomId]);
 
-    pc.current = new RTCPeerConnection(servers);
+  useEffect(() => {
+    if (isInitiator === null) return;
 
-    pc.current.onicecandidate = (event) => {
-      if (event.candidate) {
-        set(ref(db, `rooms/${roomId}/candidates/${userId}`), event.candidate.toJSON());
-      }
-    };
+    const peerConnection = new RTCPeerConnection(configuration);
+    peerConnectionRef.current = peerConnection;
 
-    pc.current.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
-    };
+    let localStream;
 
-    navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
-      .then((stream) => {
-        stream.getTracks().forEach((track) => {
-          pc.current.addTrack(track, stream);
+    const startConnection = async () => {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
         });
+
         if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
+          localVideoRef.current.srcObject = localStream;
         }
 
-        const signalRef = ref(db, `rooms/${roomId}/signal`);
-        onValue(signalRef, async (snapshot) => {
-          const data = snapshot.val();
-          if (!data) {
-            // Bu kullanıcı başlatıcı
-            const offer = await pc.current.createOffer();
-            await pc.current.setLocalDescription(offer);
-            await set(signalRef, { offer });
-          } else if (data.offer && !data.answer) {
-            // Bu kullanıcı alıcı
-            await pc.current.setRemoteDescription(data.offer);
-            const answer = await pc.current.createAnswer();
-            await pc.current.setLocalDescription(answer);
-            await set(signalRef, { ...data, answer });
-          } else if (data.answer && !pc.current.currentRemoteDescription) {
-            // Başlatıcı cevabı alır
-            await pc.current.setRemoteDescription(data.answer);
+        localStream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, localStream);
+        });
+
+        peerConnection.ontrack = (event) => {
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = event.streams[0];
+          }
+        };
+
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
+            push(candidatesRef, event.candidate.toJSON());
+          }
+        };
+
+        if (isInitiator) {
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
+          set(ref(db, `rooms/${roomId}/offer`), offer.toJSON());
+
+          onValue(ref(db, `rooms/${roomId}/answer`), async (snapshot) => {
+            const answer = snapshot.val();
+            if (answer) {
+              await peerConnection.setRemoteDescription(
+                new RTCSessionDescription(answer)
+              );
+            }
+          });
+        } else {
+          onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
+            const offer = snapshot.val();
+            if (offer) {
+              await peerConnection.setRemoteDescription(
+                new RTCSessionDescription(offer)
+              );
+              const answer = await peerConnection.createAnswer();
+              await peerConnection.setLocalDescription(answer);
+              set(ref(db, `rooms/${roomId}/answer`), answer.toJSON());
+            }
+          });
+        }
+
+        const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
+        onValue(candidatesRef, (snapshot) => {
+          const candidates = snapshot.val();
+          if (candidates) {
+            Object.values(candidates).forEach(async (candidate) => {
+              try {
+                await peerConnection.addIceCandidate(
+                  new RTCIceCandidate(candidate)
+                );
+              } catch (err) {
+                console.error("ICE adayı eklenemedi:", err);
+              }
+            });
           }
         });
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("Kamera/mikrofon hatası:", err);
-        setError("Kamera/mikrofon erişimi reddedildi.");
-      });
+      }
+    };
+
+    startConnection();
 
     return () => {
-      remove(ref(db, `rooms/${roomId}/candidates/${userId}`));
-      pc.current.close();
+      peerConnection.close();
+      if (localVideoRef.current?.srcObject) {
+        localVideoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+      }
+      remove(ref(db, `rooms/${roomId}`));
     };
-  }, [started]);
+  }, [isInitiator, roomId]);
 
   return (
-    <div style={{
-      maxWidth: "900px",
-      margin: "30px auto",
-      padding: "20px",
-      borderRadius: "12px",
-      backgroundColor: "#fff",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
-    }}>
-      <h2 style={{ textAlign: "center" }}>Oda: {roomId}</h2>
-
-      {!started && (
-        <div style={{ textAlign: "center", marginTop: "20px" }}>
-          <button
-            onClick={() => { setStarted(true); setError(""); }}
-            style={{
-              padding: "10px 24px",
-              fontSize: "16px",
-              backgroundColor: "#007bff",
-              color: "white",
-              borderRadius: "8px",
-              cursor: "pointer"
-            }}
-          >
-            Kamerayı Aç ve Bağlan
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <p style={{ color: "red", textAlign: "center", marginTop: "15px" }}>
-          {error}
-        </p>
-      )}
-
-      {started && (
-        <div style={{
-          display: "flex",
-          justifyContent: "space-around",
-          marginTop: "30px",
-          gap: "30px"
-        }}>
-          <div style={{ textAlign: "center" }}>
-            <h3>Sen</h3>
-            <video ref={localVideoRef} muted autoPlay playsInline style={{
-              width: "350px",
-              height: "auto",
-              borderRadius: "12px",
-              backgroundColor: "#000"
-            }} />
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <h3>Karşı Taraf</h3>
-            <video ref={remoteVideoRef} autoPlay playsInline style={{
-              width: "350px",
-              height: "auto",
-              borderRadius: "12px",
-              backgroundColor: "#000"
-            }} />
-          </div>
-        </div>
-      )}
+    <div className="video-chat-room">
+      <video className="local-video" ref={localVideoRef} autoPlay playsInline muted />
+      <video className="remote-video" ref={remoteVideoRef} autoPlay playsInline />
     </div>
   );
 };
