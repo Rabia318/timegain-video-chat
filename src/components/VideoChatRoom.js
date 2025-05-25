@@ -13,7 +13,9 @@ const VideoChatRoom = () => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const peerConnectionRef = useRef(null);
+
   const [isInitiator, setIsInitiator] = useState(null);
+  const [started, setStarted] = useState(false);
 
   useEffect(() => {
     loginAnonymously().catch((error) =>
@@ -34,7 +36,7 @@ const VideoChatRoom = () => {
   }, [roomId]);
 
   useEffect(() => {
-    if (isInitiator === null) return;
+    if (isInitiator === null || !started) return;
 
     const peerConnection = new RTCPeerConnection(configuration);
     peerConnectionRef.current = peerConnection;
@@ -127,10 +129,30 @@ const VideoChatRoom = () => {
       }
       remove(ref(db, `rooms/${roomId}`));
     };
-  }, [isInitiator, roomId]);
+  }, [isInitiator, started, roomId]);
 
   return (
     <div className="video-chat-room">
+      {!started && (
+        <button
+          onClick={() => setStarted(true)}
+          style={{
+            position: "absolute",
+            top: 20,
+            left: 20,
+            zIndex: 1000,
+            padding: "10px 20px",
+            fontSize: "16px",
+            borderRadius: "8px",
+            backgroundColor: "#3da5d9",
+            color: "#fff",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          Kamerayı Başlat
+        </button>
+      )}
       <video
         className="local-video"
         ref={localVideoRef}
@@ -138,7 +160,12 @@ const VideoChatRoom = () => {
         playsInline
         muted
       />
-      <video className="remote-video" ref={remoteVideoRef} autoPlay playsInline />
+      <video
+        className="remote-video"
+        ref={remoteVideoRef}
+        autoPlay
+        playsInline
+      />
     </div>
   );
 };
