@@ -23,7 +23,9 @@ const App = () => {
                 <button
                   className="join-button"
                   onClick={() => {
-                    const roomId = document.getElementById("roomInput").value.trim();
+                    const roomId = document
+                      .getElementById("roomInput")
+                      .value.trim();
                     if (roomId) window.location.href = `/room/${roomId}`;
                   }}
                 >

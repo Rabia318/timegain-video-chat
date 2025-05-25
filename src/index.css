@@ -3,8 +3,8 @@ body, html, #root {
   height: 100%;
   margin: 0;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f9f5f0; /* Cream background */
-  color: #084c61; /* Dark blue text */
+  background-color: #f9f5f0;
+  color: #084c61;
 }
 
 .app-container {
@@ -47,7 +47,7 @@ body, html, #root {
 }
 
 .room-input:focus {
-  border-color: #3da5d9; /* lighter blue on focus */
+  border-color: #3da5d9;
 }
 
 .join-button {

@@ -3,7 +3,6 @@ import { useParams } from "react-router-dom";
 import { ref, onValue, set, push, remove } from "firebase/database";
 import { db, loginAnonymously } from "../firebase/firebase";
 
-
 const configuration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
@@ -73,7 +72,7 @@ const VideoChatRoom = () => {
         if (isInitiator) {
           const offer = await peerConnection.createOffer();
           await peerConnection.setLocalDescription(offer);
-          set(ref(db, `rooms/${roomId}/offer`), offer.toJSON());
+          await set(ref(db, `rooms/${roomId}/offer`), offer.toJSON());
 
           onValue(ref(db, `rooms/${roomId}/answer`), async (snapshot) => {
             const answer = snapshot.val();
@@ -92,7 +91,7 @@ const VideoChatRoom = () => {
               );
               const answer = await peerConnection.createAnswer();
               await peerConnection.setLocalDescription(answer);
-              set(ref(db, `rooms/${roomId}/answer`), answer.toJSON());
+              await set(ref(db, `rooms/${roomId}/answer`), answer.toJSON());
             }
           });
         }
@@ -120,7 +119,9 @@ const VideoChatRoom = () => {
     startConnection();
 
     return () => {
-      peerConnection.close();
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+      }
       if (localVideoRef.current?.srcObject) {
         localVideoRef.current.srcObject.getTracks().forEach((track) => track.stop());
       }
@@ -130,7 +131,13 @@ const VideoChatRoom = () => {
 
   return (
     <div className="video-chat-room">
-      <video className="local-video" ref={localVideoRef} autoPlay playsInline muted />
+      <video
+        className="local-video"
+        ref={localVideoRef}
+        autoPlay
+        playsInline
+        muted
+      />
       <video className="remote-video" ref={remoteVideoRef} autoPlay playsInline />
     </div>
   );
