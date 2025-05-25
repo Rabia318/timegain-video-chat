@@ -1,6 +1,7 @@
 import React from "react";
 import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
-import VideoChatRoom from "./VideoChatRoom";
+import VideoChatRoom from "./components/VideoChatRoom";
+import "./index.css";
 
 const App = () => {
   return (
@@ -22,7 +23,7 @@ const App = () => {
                 <button
                   className="join-button"
                   onClick={() => {
-                    const roomId = document.getElementById("roomInput").value;
+                    const roomId = document.getElementById("roomInput").value.trim();
                     if (roomId) window.location.href = `/room/${roomId}`;
                   }}
                 >
