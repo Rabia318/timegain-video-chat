@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ref, onValue, set, push, remove } from "firebase/database";
-import { db, loginAnonymously } from "../firebase";
+import { db, loginAnonymously } from "../firebase/firebase";
+
 
 const configuration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
