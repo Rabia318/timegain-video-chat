@@ -1,134 +1,82 @@
 import React, { useEffect, useRef, useState } from "react";
-import { db } from "../firebase/firebase";
-import { ref, onValue, set, push, onChildAdded, remove } from "firebase/database";
+import { useParams } from "react-router-dom";
+import { getDatabase, ref, onValue, set } from "firebase/database";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
-const VideoChatRoom = ({ roomId, userId }) => {
+const VideoChatRoom = () => {
+  const { roomId } = useParams();
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const [started, setStarted] = useState(false);
-  const [error, setError] = useState("");
-
-  const pc = useRef(null);
+  const peerConnectionRef = useRef(null);
+  const [joined, setJoined] = useState(false);
 
   useEffect(() => {
-    if (!started) return;
+    const auth = getAuth();
+    signInAnonymously(auth).then(() => {
+      initRoom();
+    });
+  }, []);
 
-    const servers = {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    };
+  const initRoom = async () => {
+    const db = getDatabase();
+    const roomRef = ref(db, `rooms/${roomId}`);
+    const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideoRef.current.srcObject = localStream;
 
-    pc.current = new RTCPeerConnection(servers);
+    const configuration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+    const pc = new RTCPeerConnection(configuration);
+    peerConnectionRef.current = pc;
 
-    pc.current.onicecandidate = (event) => {
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    pc.onicecandidate = event => {
       if (event.candidate) {
-        const candidatesRef = ref(db, `rooms/${roomId}/candidates/${userId}`);
-        const newCandidateRef = push(candidatesRef);
-        set(newCandidateRef, event.candidate.toJSON());
+        set(ref(db, `rooms/${roomId}/iceCandidates/${auth.currentUser.uid}`), event.candidate);
       }
     };
 
-    pc.current.ontrack = (event) => {
+    pc.ontrack = event => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
 
-    navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
-      .then((stream) => {
-        stream.getTracks().forEach((track) => {
-          pc.current.addTrack(track, stream);
-        });
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-        }
+    onValue(roomRef, async snapshot => {
+      const data = snapshot.val();
+      if (!data) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await set(roomRef, { offer });
+      } else if (data.offer && !data.answer) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await set(roomRef, { ...data, answer });
+      } else if (data.answer && !pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      }
+    });
 
-        const signalRef = ref(db, `rooms/${roomId}/signal`);
-        onValue(signalRef, async (snapshot) => {
-          const data = snapshot.val();
-          if (!data) {
-            // Bu kullanıcı başlatıcı
-            const offer = await pc.current.createOffer();
-            await pc.current.setLocalDescription(offer);
-            await set(signalRef, { offer });
-          } else if (data.offer && !data.answer) {
-            // Bu kullanıcı alıcı
-            await pc.current.setRemoteDescription(data.offer);
-            const answer = await pc.current.createAnswer();
-            await pc.current.setLocalDescription(answer);
-            await set(signalRef, { ...data, answer });
-          } else if (data.answer && !pc.current.currentRemoteDescription) {
-            // Başlatıcı cevabı alır
-            await pc.current.setRemoteDescription(data.answer);
-          }
+    onValue(ref(db, `rooms/${roomId}/iceCandidates`), snapshot => {
+      const candidates = snapshot.val();
+      if (candidates) {
+        Object.values(candidates).forEach(candidate => {
+          pc.addIceCandidate(new RTCIceCandidate(candidate));
         });
+      }
+    });
 
-        const remoteCandidatesRef = ref(db, `rooms/${roomId}/candidates`);
-        onChildAdded(remoteCandidatesRef, (snapshot) => {
-          const candidate = snapshot.val();
-          if (candidate && candidate !== userId) {
-            pc.current.addIceCandidate(new RTCIceCandidate(candidate));
-          }
-        });
-      })
-      .catch((err) => {
-        console.error("Kamera/mikrofon hatası:", err);
-        setError("Kamera/mikrofon erişimi reddedildi.");
-      });
-
-    return () => {
-      remove(ref(db, `rooms/${roomId}/candidates/${userId}`));
-      pc.current.close();
-    };
-  }, [started]);
+    setJoined(true);
+  };
 
   return (
-    <div className="max-w-4xl mx-auto mt-8 p-6 rounded-lg bg-white shadow-md">
-      <h2 className="text-center text-2xl font-semibold mb-4">Oda: {roomId}</h2>
-
-      {!started && (
-        <div className="text-center mt-4">
-          <button
-            onClick={() => {
-              setStarted(true);
-              setError("");
-            }}
-            className="px-6 py-2 text-lg bg-blue-500 text-white rounded hover:bg-blue-600 transition"
-          >
-            Kamerayı Aç ve Bağlan
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <p className="text-red-500 text-center mt-4">
-          {error}
-        </p>
-      )}
-
-      {started && (
-        <div className="flex flex-col md:flex-row justify-around mt-6 gap-6">
-          <div className="text-center">
-            <h3 className="mb-2 font-medium">Sen</h3>
-            <video
-              ref={localVideoRef}
-              muted
-              autoPlay
-              playsInline
-              className="w-full md:w-80 rounded-lg bg-black"
-            />
-          </div>
-          <div className="text-center">
-            <h3 className="mb-2 font-medium">Karşı Taraf</h3>
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              className="w-full md:w-80 rounded-lg bg-black"
-            />
-          </div>
-        </div>
-      )}
+    <div className="video-chat-room">
+      <h2 className="room-title">Room ID: {roomId}</h2>
+      <div className="video-container">
+        <video ref={localVideoRef} autoPlay muted className="video-box" />
+        <video ref={remoteVideoRef} autoPlay className="video-box" />
+      </div>
+      {!joined && <p className="loading-message">Connecting to room...</p>}
     </div>
   );
 };
