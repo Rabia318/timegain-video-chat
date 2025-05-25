@@ -13,9 +13,9 @@ const VideoChatRoom = () => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const peerConnectionRef = useRef(null);
-
+  const [localStream, setLocalStream] = useState(null);
   const [isInitiator, setIsInitiator] = useState(null);
-  const [started, setStarted] = useState(false);
+  const [joined, setJoined] = useState(false);
 
   useEffect(() => {
     loginAnonymously().catch((error) =>
@@ -35,137 +35,118 @@ const VideoChatRoom = () => {
     );
   }, [roomId]);
 
-  useEffect(() => {
-    if (isInitiator === null || !started) return;
+  const startConnection = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+    localVideoRef.current.srcObject = stream;
+    setLocalStream(stream);
 
     const peerConnection = new RTCPeerConnection(configuration);
     peerConnectionRef.current = peerConnection;
 
-    let localStream;
+    stream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, stream);
+    });
 
-    const startConnection = async () => {
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStream;
-        }
-
-        localStream.getTracks().forEach((track) => {
-          peerConnection.addTrack(track, localStream);
-        });
-
-        peerConnection.ontrack = (event) => {
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = event.streams[0];
-          }
-        };
-
-        peerConnection.onicecandidate = (event) => {
-          if (event.candidate) {
-            const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
-            push(candidatesRef, event.candidate.toJSON());
-          }
-        };
-
-        if (isInitiator) {
-          const offer = await peerConnection.createOffer();
-          await peerConnection.setLocalDescription(offer);
-          await set(ref(db, `rooms/${roomId}/offer`), offer.toJSON());
-
-          onValue(ref(db, `rooms/${roomId}/answer`), async (snapshot) => {
-            const answer = snapshot.val();
-            if (answer) {
-              await peerConnection.setRemoteDescription(
-                new RTCSessionDescription(answer)
-              );
-            }
-          });
-        } else {
-          onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
-            const offer = snapshot.val();
-            if (offer) {
-              await peerConnection.setRemoteDescription(
-                new RTCSessionDescription(offer)
-              );
-              const answer = await peerConnection.createAnswer();
-              await peerConnection.setLocalDescription(answer);
-              await set(ref(db, `rooms/${roomId}/answer`), answer.toJSON());
-            }
-          });
-        }
-
-        const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
-        onValue(candidatesRef, (snapshot) => {
-          const candidates = snapshot.val();
-          if (candidates) {
-            Object.values(candidates).forEach(async (candidate) => {
-              try {
-                await peerConnection.addIceCandidate(
-                  new RTCIceCandidate(candidate)
-                );
-              } catch (err) {
-                console.error("ICE adayı eklenemedi:", err);
-              }
-            });
-          }
-        });
-      } catch (err) {
-        console.error("Kamera/mikrofon hatası:", err);
+    peerConnection.ontrack = (event) => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
 
-    startConnection();
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
+        push(candidatesRef, event.candidate.toJSON());
+      }
+    };
 
+    if (isInitiator) {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      await set(ref(db, `rooms/${roomId}/offer`), offer.toJSON());
+
+      onValue(ref(db, `rooms/${roomId}/answer`), async (snapshot) => {
+        const answer = snapshot.val();
+        if (answer) {
+          await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(answer)
+          );
+        }
+      });
+    } else {
+      onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
+        const offer = snapshot.val();
+        if (offer) {
+          await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(offer)
+          );
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          await set(ref(db, `rooms/${roomId}/answer`), answer.toJSON());
+        }
+      });
+    }
+
+    const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
+    onValue(candidatesRef, (snapshot) => {
+      const candidates = snapshot.val();
+      if (candidates) {
+        Object.values(candidates).forEach(async (candidate) => {
+          try {
+            await peerConnection.addIceCandidate(
+              new RTCIceCandidate(candidate)
+            );
+          } catch (err) {
+            console.error("ICE adayı eklenemedi:", err);
+          }
+        });
+      }
+    });
+  };
+
+  const handleJoin = () => {
+    setJoined(true);
+    startConnection();
+  };
+
+  useEffect(() => {
     return () => {
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
       }
-      if (localVideoRef.current?.srcObject) {
-        localVideoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
       }
       remove(ref(db, `rooms/${roomId}`));
     };
-  }, [isInitiator, started, roomId]);
+  }, [localStream, roomId]);
 
   return (
     <div className="video-chat-room">
-      {!started && (
-        <button
-          onClick={() => setStarted(true)}
-          style={{
-            position: "absolute",
-            top: 20,
-            left: 20,
-            zIndex: 1000,
-            padding: "10px 20px",
-            fontSize: "16px",
-            borderRadius: "8px",
-            backgroundColor: "#3da5d9",
-            color: "#fff",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          Kamerayı Başlat
+      {!joined ? (
+        <button className="join-button" onClick={handleJoin}>
+          Kamerayı Aç ve Katıl
         </button>
+      ) : (
+        <>
+          <video
+            className="local-video"
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+          />
+          <video
+            className="remote-video"
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+          />
+        </>
       )}
-      <video
-        className="local-video"
-        ref={localVideoRef}
-        autoPlay
-        playsInline
-        muted
-      />
-      <video
-        className="remote-video"
-        ref={remoteVideoRef}
-        autoPlay
-        playsInline
-      />
     </div>
   );
 };
