@@ -1,15 +1,34 @@
-/* src/index.css */
-body {
+/* Genel sayfa düzeni */
+body, html, #root {
   margin: 0;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f4f6f8;
-  color: #333;
+  padding: 0;
+  height: 100%;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f7f5f2; /* Krem rengi */
+  color: #334e68; /* Koyu mavi */
 }
-input, button {
+
+/* Home sayfası */
+.home-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: linear-gradient(135deg, #a8dadc, #457b9d); /* açık mavi degrade */
+  color: white;
+  padding: 20px;
+  text-align: center;
+}
+
+.input-group {
+  margin-top: 20px;
+}
+
+.input-text {
+  padding: 10px 15px;
+  font-size: 16px;
+  border-radius: 8px;
   border: none;
-  outline: none;
-  transition: 0.2s ease-in-out;
-}
-button:hover {
-  opacity: 0.9;
-}
+  width: 260px;
+ 

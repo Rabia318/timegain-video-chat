@@ -1,137 +1,146 @@
-// src/components/VideoChatRoom.js
 import React, { useEffect, useRef, useState } from "react";
 import { db } from "../firebase/firebase";
-import { ref, onValue, set, remove } from "firebase/database";
+import { ref, onValue, push, remove, set } from "firebase/database";
+
+const servers = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    // Gerekirse TURN sunucu ekle
+  ],
+};
 
 const VideoChatRoom = ({ roomId, userId }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const pc = useRef(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
-
-  const pc = useRef(null);
 
   useEffect(() => {
     if (!started) return;
 
-    const servers = {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    };
-
     pc.current = new RTCPeerConnection(servers);
+
+    // ICE Candidate'ları Firebase'e göndermek için referanslar
+    const candidatesRef = ref(db, `rooms/${roomId}/candidates/${userId}`);
 
     pc.current.onicecandidate = (event) => {
       if (event.candidate) {
-        set(ref(db, `rooms/${roomId}/candidates/${userId}`), event.candidate.toJSON());
+        // Push ile her yeni candidate ayrı ayrı ekleniyor
+        push(candidatesRef, event.candidate.toJSON());
       }
     };
 
+    // Karşı tarafın medya akışını yakala
     pc.current.ontrack = (event) => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
 
+    // Kullanıcının kamerasını aç ve stream'i RTCPeerConnection'a ekle
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
-        stream.getTracks().forEach((track) => {
-          pc.current.addTrack(track, stream);
-        });
+        // Local videoya yayınla
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
 
+        // Tüm stream parçalarını peer connection'a ekle
+        stream.getTracks().forEach((track) => {
+          pc.current.addTrack(track, stream);
+        });
+
         const signalRef = ref(db, `rooms/${roomId}/signal`);
+
+        // Signal değişikliklerini dinle
         onValue(signalRef, async (snapshot) => {
           const data = snapshot.val();
+
+          // Eğer signal yoksa (oda boş), bu kullanıcı başlatıcı (offer oluşturur)
           if (!data) {
-            // Bu kullanıcı başlatıcı
             const offer = await pc.current.createOffer();
             await pc.current.setLocalDescription(offer);
-            await set(signalRef, { offer });
-          } else if (data.offer && !data.answer) {
-            // Bu kullanıcı alıcı
+            await set(signalRef, { offer, caller: userId });
+          }
+          // Eğer offer varsa ve answer yoksa, bu kullanıcı alıcıdır (answer oluşturur)
+          else if (data.offer && !data.answer && data.caller !== userId) {
             await pc.current.setRemoteDescription(data.offer);
             const answer = await pc.current.createAnswer();
             await pc.current.setLocalDescription(answer);
-            await set(signalRef, { ...data, answer });
-          } else if (data.answer && !pc.current.currentRemoteDescription) {
-            // Başlatıcı cevabı alır
+            await set(signalRef, { ...data, answer, callee: userId });
+          }
+          // Eğer answer varsa ve local remote description yoksa, başlatıcı cevabı set eder
+          else if (data.answer && pc.current.remoteDescription === null && data.caller === userId) {
             await pc.current.setRemoteDescription(data.answer);
+          }
+        });
+
+        // Diğer kullanıcının ICE candidate'larını dinle ve ekle
+        const otherUserId = userId === "user1" ? "user2" : "user1"; // Basit kullanıcı ayrımı, geliştirilebilir
+        const otherCandidatesRef = ref(db, `rooms/${roomId}/candidates/${otherUserId}`);
+
+        onValue(otherCandidatesRef, (snapshot) => {
+          const candidates = snapshot.val();
+          if (candidates) {
+            Object.values(candidates).forEach((candidate) => {
+              pc.current.addIceCandidate(candidate).catch((e) => {
+                console.error("ICE candidate ekleme hatası:", e);
+              });
+            });
           }
         });
       })
       .catch((err) => {
-        console.error("Kamera/mikrofon hatası:", err);
-        setError("Kamera/mikrofon erişimi reddedildi.");
+        console.error("Kamera/mikrofon erişim hatası:", err);
+        setError("Kamera veya mikrofon erişimi reddedildi.");
       });
 
+    // Temizlik - sayfa kapandığında peer connection ve DB referansları temizlenir
     return () => {
       remove(ref(db, `rooms/${roomId}/candidates/${userId}`));
-      pc.current.close();
+      remove(ref(db, `rooms/${roomId}/signal`));
+      if (pc.current) {
+        pc.current.close();
+      }
     };
-  }, [started]);
+  }, [started, roomId, userId]);
 
   return (
-    <div style={{
-      maxWidth: "900px",
-      margin: "30px auto",
-      padding: "20px",
-      borderRadius: "12px",
-      backgroundColor: "#fff",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
-    }}>
-      <h2 style={{ textAlign: "center" }}>Oda: {roomId}</h2>
+    <div className="video-chat-room">
+      <h2 className="room-title">Oda: {roomId}</h2>
 
       {!started && (
-        <div style={{ textAlign: "center", marginTop: "20px" }}>
-          <button
-            onClick={() => { setStarted(true); setError(""); }}
-            style={{
-              padding: "10px 24px",
-              fontSize: "16px",
-              backgroundColor: "#007bff",
-              color: "white",
-              borderRadius: "8px",
-              cursor: "pointer"
-            }}
-          >
+        <div className="btn-container">
+          <button className="btn-primary" onClick={() => { setStarted(true); setError(""); }}>
             Kamerayı Aç ve Bağlan
           </button>
         </div>
       )}
 
-      {error && (
-        <p style={{ color: "red", textAlign: "center", marginTop: "15px" }}>
-          {error}
-        </p>
-      )}
+      {error && <p className="error-text">{error}</p>}
 
       {started && (
-        <div style={{
-          display: "flex",
-          justifyContent: "space-around",
-          marginTop: "30px",
-          gap: "30px"
-        }}>
-          <div style={{ textAlign: "center" }}>
+        <div className="videos-container">
+          <div>
             <h3>Sen</h3>
-            <video ref={localVideoRef} muted autoPlay playsInline style={{
-              width: "350px",
-              height: "auto",
-              borderRadius: "12px",
-              backgroundColor: "#000"
-            }} />
+            <video
+              ref={localVideoRef}
+              muted
+              autoPlay
+              playsInline
+              className="video-box"
+            />
           </div>
-          <div style={{ textAlign: "center" }}>
+          <div>
             <h3>Karşı Taraf</h3>
-            <video ref={remoteVideoRef} autoPlay playsInline style={{
-              width: "350px",
-              height: "auto",
-              borderRadius: "12px",
-              backgroundColor: "#000"
-            }} />
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="video-box"
+            />
           </div>
         </div>
       )}
