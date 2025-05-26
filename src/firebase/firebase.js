@@ -1,4 +1,3 @@
-// src/firebase/firebase.js
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { getDatabase } from "firebase/database";
