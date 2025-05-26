@@ -13,6 +13,11 @@ const VideoChatRoom = () => {
   const remoteVideoRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
+
+  // Bu iki ayrı array ile ICE adayları ayrılıyor (initiator / receiver)
+  const initiatorCandidatesRef = ref(db, `rooms/${roomId}/initiatorCandidates`);
+  const receiverCandidatesRef = ref(db, `rooms/${roomId}/receiverCandidates`);
+
   const [isInitiator, setIsInitiator] = useState(null);
 
   // Anonim giriş
@@ -22,7 +27,7 @@ const VideoChatRoom = () => {
       .catch((error) => console.error("Anonim giriş başarısız:", error));
   }, []);
 
-  // Oda kontrolü
+  // Oda kontrolü, var mı yok mu
   useEffect(() => {
     const roomRef = ref(db, `rooms/${roomId}`);
     onValue(
@@ -47,10 +52,8 @@ const VideoChatRoom = () => {
           video: true,
           audio: true,
         });
-
         localStreamRef.current = localStream;
 
-        // Kendi görüntünü göster
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = localStream;
         }
@@ -59,6 +62,7 @@ const VideoChatRoom = () => {
           peerConnection.addTrack(track, localStream);
         });
 
+        // Remote track geldiğinde video elemente ata
         peerConnection.ontrack = (event) => {
           console.log("Karşıdan medya geldi:", event.streams);
           if (remoteVideoRef.current) {
@@ -66,35 +70,35 @@ const VideoChatRoom = () => {
           }
         };
 
+        // ICE adaylarını ayırarak firebase'e pushla
         peerConnection.onicecandidate = (event) => {
           if (event.candidate) {
-            const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
-            push(candidatesRef, event.candidate.toJSON());
+            const candidateData = event.candidate.toJSON();
+            if (isInitiator) {
+              push(initiatorCandidatesRef, candidateData);
+            } else {
+              push(receiverCandidatesRef, candidateData);
+            }
           }
         };
 
-        // ICE candidates dinle
-        const candidatesRef = ref(db, `rooms/${roomId}/candidates`);
-        onValue(candidatesRef, async (snapshot) => {
-          const candidates = snapshot.val();
-          if (candidates) {
-            for (const key in candidates) {
-              const candidate = new RTCIceCandidate(candidates[key]);
-              try {
-                await peerConnection.addIceCandidate(candidate);
-              } catch (err) {
-                console.error("ICE adayı eklenemedi:", err);
-              }
-            }
-          }
-        });
+        // ICE Connection durumlarını logla (debug için)
+        peerConnection.oniceconnectionstatechange = () => {
+          console.log("ICE Connection State:", peerConnection.iceConnectionState);
+        };
 
-        // İki senaryo: teklif eden ve yanıtlayan
+        peerConnection.onconnectionstatechange = () => {
+          console.log("Peer Connection State:", peerConnection.connectionState);
+        };
+
+        // Offer/Answer ve ICE adaylarını yönet
         if (isInitiator) {
+          // Offer oluştur ve gönder
           const offer = await peerConnection.createOffer();
           await peerConnection.setLocalDescription(offer);
           await set(ref(db, `rooms/${roomId}/offer`), offer.toJSON());
 
+          // Answer'ı dinle
           onValue(ref(db, `rooms/${roomId}/answer`), async (snapshot) => {
             const answer = snapshot.val();
             if (answer) {
@@ -104,7 +108,24 @@ const VideoChatRoom = () => {
               console.log("Yanıt ayarlandı.");
             }
           });
+
+          // Receiver ICE adaylarını dinle
+          onValue(receiverCandidatesRef, async (snapshot) => {
+            const candidates = snapshot.val();
+            if (candidates) {
+              for (const key in candidates) {
+                const candidate = new RTCIceCandidate(candidates[key]);
+                try {
+                  await peerConnection.addIceCandidate(candidate);
+                } catch (err) {
+                  console.error("ICE adayı eklenemedi:", err);
+                }
+              }
+            }
+          });
+
         } else {
+          // Teklif dinle
           onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
             const offer = snapshot.val();
             if (offer) {
@@ -113,10 +134,26 @@ const VideoChatRoom = () => {
               );
               console.log("Teklif alındı ve ayarlandı.");
 
+              // Yanıt oluştur ve gönder
               const answer = await peerConnection.createAnswer();
               await peerConnection.setLocalDescription(answer);
               await set(ref(db, `rooms/${roomId}/answer`), answer.toJSON());
               console.log("Yanıt oluşturuldu ve gönderildi.");
+            }
+          });
+
+          // Initiator ICE adaylarını dinle
+          onValue(initiatorCandidatesRef, async (snapshot) => {
+            const candidates = snapshot.val();
+            if (candidates) {
+              for (const key in candidates) {
+                const candidate = new RTCIceCandidate(candidates[key]);
+                try {
+                  await peerConnection.addIceCandidate(candidate);
+                } catch (err) {
+                  console.error("ICE adayı eklenemedi:", err);
+                }
+              }
             }
           });
         }
@@ -136,6 +173,7 @@ const VideoChatRoom = () => {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      // Odayı temizle, dikkat et: herkes çıkınca silmek istersen buna göre değiştir
       remove(ref(db, `rooms/${roomId}`));
     };
   }, [isInitiator, roomId]);
