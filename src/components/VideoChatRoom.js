@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ref, onValue, push, set, remove } from "firebase/database";
+import { ref, onValue, push, set } from "firebase/database";
 import { db, loginAnonymously } from "../firebase/firebase";
 
 const configuration = {
@@ -14,10 +14,6 @@ const VideoChatRoom = () => {
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
 
-  // Bu iki ayrı array ile ICE adayları ayrılıyor (initiator / receiver)
-  const initiatorCandidatesRef = ref(db, `rooms/${roomId}/initiatorCandidates`);
-  const receiverCandidatesRef = ref(db, `rooms/${roomId}/receiverCandidates`);
-
   const [isInitiator, setIsInitiator] = useState(null);
 
   // Anonim giriş
@@ -27,14 +23,14 @@ const VideoChatRoom = () => {
       .catch((error) => console.error("Anonim giriş başarısız:", error));
   }, []);
 
-  // Oda kontrolü, var mı yok mu
+  // Oda kontrolü (başlatıcı mı katılımcı mı)
   useEffect(() => {
     const roomRef = ref(db, `rooms/${roomId}`);
     onValue(
       roomRef,
       (snapshot) => {
         const data = snapshot.val();
-        setIsInitiator(!data);
+        setIsInitiator(!data); // veri yoksa başlatıcı
       },
       { onlyOnce: true }
     );
@@ -62,27 +58,22 @@ const VideoChatRoom = () => {
           peerConnection.addTrack(track, localStream);
         });
 
-        // Remote track geldiğinde video elemente ata
         peerConnection.ontrack = (event) => {
-          console.log("Karşıdan medya geldi:", event.streams);
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = event.streams[0];
           }
         };
 
-        // ICE adaylarını ayırarak firebase'e pushla
         peerConnection.onicecandidate = (event) => {
           if (event.candidate) {
             const candidateData = event.candidate.toJSON();
-            if (isInitiator) {
-              push(initiatorCandidatesRef, candidateData);
-            } else {
-              push(receiverCandidatesRef, candidateData);
-            }
+            const candidatePath = isInitiator
+              ? `rooms/${roomId}/initiatorCandidates`
+              : `rooms/${roomId}/receiverCandidates`;
+            push(ref(db, candidatePath), candidateData);
           }
         };
 
-        // ICE Connection durumlarını logla (debug için)
         peerConnection.oniceconnectionstatechange = () => {
           console.log("ICE Connection State:", peerConnection.iceConnectionState);
         };
@@ -91,14 +82,11 @@ const VideoChatRoom = () => {
           console.log("Peer Connection State:", peerConnection.connectionState);
         };
 
-        // Offer/Answer ve ICE adaylarını yönet
         if (isInitiator) {
-          // Offer oluştur ve gönder
           const offer = await peerConnection.createOffer();
           await peerConnection.setLocalDescription(offer);
           await set(ref(db, `rooms/${roomId}/offer`), offer.toJSON());
 
-          // Answer'ı dinle
           onValue(ref(db, `rooms/${roomId}/answer`), async (snapshot) => {
             const answer = snapshot.val();
             if (answer) {
@@ -109,8 +97,7 @@ const VideoChatRoom = () => {
             }
           });
 
-          // Receiver ICE adaylarını dinle
-          onValue(receiverCandidatesRef, async (snapshot) => {
+          onValue(ref(db, `rooms/${roomId}/receiverCandidates`), async (snapshot) => {
             const candidates = snapshot.val();
             if (candidates) {
               for (const key in candidates) {
@@ -123,9 +110,7 @@ const VideoChatRoom = () => {
               }
             }
           });
-
         } else {
-          // Teklif dinle
           onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
             const offer = snapshot.val();
             if (offer) {
@@ -134,7 +119,6 @@ const VideoChatRoom = () => {
               );
               console.log("Teklif alındı ve ayarlandı.");
 
-              // Yanıt oluştur ve gönder
               const answer = await peerConnection.createAnswer();
               await peerConnection.setLocalDescription(answer);
               await set(ref(db, `rooms/${roomId}/answer`), answer.toJSON());
@@ -142,8 +126,7 @@ const VideoChatRoom = () => {
             }
           });
 
-          // Initiator ICE adaylarını dinle
-          onValue(initiatorCandidatesRef, async (snapshot) => {
+          onValue(ref(db, `rooms/${roomId}/initiatorCandidates`), async (snapshot) => {
             const candidates = snapshot.val();
             if (candidates) {
               for (const key in candidates) {
@@ -173,25 +156,28 @@ const VideoChatRoom = () => {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      // Odayı temizle, dikkat et: herkes çıkınca silmek istersen buna göre değiştir
-      remove(ref(db, `rooms/${roomId}`));
+
+      // ❌ Oda verileri artık silinmiyor, Firebase'de kalacak
+      // remove(ref(db, `rooms/${roomId}`));
     };
   }, [isInitiator, roomId]);
 
   return (
-    <div className="video-chat-room">
+    <div className="video-chat-room" style={{ display: "flex", gap: "1rem" }}>
       <video
         className="local-video"
         ref={localVideoRef}
         autoPlay
         playsInline
         muted
+        style={{ width: "45%", border: "2px solid #ccc", borderRadius: "10px" }}
       />
       <video
         className="remote-video"
         ref={remoteVideoRef}
         autoPlay
         playsInline
+        style={{ width: "45%", border: "2px solid #ccc", borderRadius: "10px" }}
       />
     </div>
   );
