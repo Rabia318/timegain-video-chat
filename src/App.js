@@ -29,7 +29,11 @@ const Home = () => {
     >
       <h1
         className="title"
-        style={{ color: "#3a4e8c", marginBottom: "1rem", fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}
+        style={{
+          color: "#3a4e8c",
+          marginBottom: "1rem",
+          fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
+        }}
       >
         WebRTC Video Chat
       </h1>
@@ -55,4 +59,29 @@ const Home = () => {
           padding: "10px 25px",
           borderRadius: "8px",
           border: "none",
-          backgroundColor: "#3a
+          backgroundColor: "#3a4e8c",
+          color: "#fff",
+          fontSize: "1rem",
+          cursor: "pointer",
+        }}
+      >
+        Join Room
+      </button>
+    </div>
+  );
+};
+
+const App = () => {
+  return (
+    <div className="app-container">
+      <Router>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/room/:roomId" element={<VideoChatRoom />} />
+        </Routes>
+      </Router>
+    </div>
+  );
+};
+
+export default App;
