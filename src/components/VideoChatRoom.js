@@ -1,223 +1,144 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ref, onValue, set, remove } from "firebase/database";
 import { db, loginAnonymously } from "../firebase/firebase";
-import {
-  ref,
-  onValue,
-  set,
-  remove,
-  update,
-  get,
-  child,
-} from "firebase/database";
+import "../index.css";
 
-const servers = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    // İstersen burada TURN server ekleyebilirsin
-  ],
-  iceCandidatePoolSize: 10,
+const configuration = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-const VideoChatRoom = ({ roomId, onLeave }) => {
+export default function VideoChatRoom() {
+  const { roomName } = useParams();
+  const navigate = useNavigate();
+
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const pcRef = useRef(null);
+  const [isPermissionGranted, setIsPermissionGranted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const pc = useRef(null);
+  // Firebase signaling references
+  const roomRef = ref(db, `rooms/${roomName}`);
+  const offerRef = ref(db, `rooms/${roomName}/offer`);
+  const answerRef = ref(db, `rooms/${roomName}/answer`);
+  const candidatesRef = ref(db, `rooms/${roomName}/candidates`);
 
-  const localStream = useRef(null);
-  const remoteStream = useRef(null);
+  // Request media permissions and start stream
+  const getMedia = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localVideoRef.current.srcObject = stream;
+      setIsPermissionGranted(true);
 
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState(null);
+      pcRef.current = new RTCPeerConnection(configuration);
 
-  // Firebase DB paths
-  const roomRef = ref(db, `rooms/${roomId}`);
+      // Add local tracks to peer connection
+      stream.getTracks().forEach((track) => {
+        pcRef.current.addTrack(track, stream);
+      });
 
-  useEffect(() => {
-    // Firebase anonim login
-    loginAnonymously().catch((err) => setError("Auth error: " + err.message));
-  }, []);
+      // When remote stream arrives, show it
+      pcRef.current.ontrack = (event) => {
+        if (remoteVideoRef.current.srcObject !== event.streams[0]) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        }
+      };
 
-  useEffect(() => {
-    const startConnection = async () => {
-      try {
-        // 1. Medya akışını al
-        localStream.current = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-        // Local videoya ata
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStream.current;
+      // ICE candidates collection and sending to Firebase
+      pcRef.current.onicecandidate = (event) => {
+        if (event.candidate) {
+          const newCandidateRef = ref(db, `rooms/${roomName}/candidates/${Date.now()}`);
+          set(newCandidateRef, event.candidate.toJSON());
+        }
+      };
+
+      // Signaling logic
+      onValue(roomRef, async (snapshot) => {
+        const roomData = snapshot.val();
+
+        // If no offer and no answer, this user is the initiator
+        if (!roomData?.offer && !roomData?.answer) {
+          // Create offer
+          const offer = await pcRef.current.createOffer();
+          await pcRef.current.setLocalDescription(offer);
+          await set(offerRef, offer.toJSON());
         }
 
-        // 2. Remote stream oluştur
-        remoteStream.current = new MediaStream();
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream.current;
-        }
-
-        // 3. PeerConnection oluştur
-        pc.current = new RTCPeerConnection(servers);
-
-        // 4. Local streamdeki tüm trackleri PeerConnection'a ekle
-        localStream.current.getTracks().forEach((track) => {
-          pc.current.addTrack(track, localStream.current);
-        });
-
-        // 5. Remote stream için track geldiğinde ekle
-        pc.current.ontrack = (event) => {
-          event.streams[0].getTracks().forEach((track) => {
-            remoteStream.current.addTrack(track);
-          });
-        };
-
-        // 6. ICE candidate Firebase’e gönder
-        pc.current.onicecandidate = (event) => {
-          if (event.candidate) {
-            const candidatesRef = ref(db, `rooms/${roomId}/candidates/${isInitiator ? "caller" : "callee"}`);
-            // Yeni ICE candidate’ı Firebase DB’ye ekle
-            update(candidatesRef, { [Date.now()]: event.candidate.toJSON() });
+        // If offer exists and no answer, this user is receiver
+        if (roomData?.offer && !roomData?.answer) {
+          const offerDescription = roomData.offer;
+          if (!pcRef.current.currentRemoteDescription) {
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(offerDescription));
+            const answer = await pcRef.current.createAnswer();
+            await pcRef.current.setLocalDescription(answer);
+            await set(answerRef, answer.toJSON());
           }
-        };
-
-        // 7. Oda oluşturma / katılma için kontrol
-        const roomSnapshot = await get(roomRef);
-
-        let isInitiator = false;
-
-        if (!roomSnapshot.exists()) {
-          // Oda yok, oluştur ve offer gönder
-          isInitiator = true;
-
-          pc.current.onnegotiationneeded = async () => {
-            const offer = await pc.current.createOffer();
-            await pc.current.setLocalDescription(offer);
-
-            const roomWithOffer = {
-              offer: {
-                type: offer.type,
-                sdp: offer.sdp,
-              },
-            };
-            await set(roomRef, roomWithOffer);
-          };
-
-          // Cevapları dinle
-          onValue(ref(db, `rooms/${roomId}/answer`), async (snapshot) => {
-            const data = snapshot.val();
-            if (data && data.sdp && pc.current.signalingState !== "stable") {
-              const answerDesc = new RTCSessionDescription(data);
-              await pc.current.setRemoteDescription(answerDesc);
-              setIsConnected(true);
-            }
-          });
-
-          // Karşı taraf ICE candidate'larını dinle
-          onValue(ref(db, `rooms/${roomId}/candidates/callee`), (snapshot) => {
-            const candidates = snapshot.val();
-            if (candidates) {
-              Object.values(candidates).forEach(async (candidate) => {
-                try {
-                  await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
-                } catch (e) {
-                  console.error("Error adding callee candidate:", e);
-                }
-              });
-            }
-          });
-
-        } else {
-          // Oda var, katılan taraf
-          isInitiator = false;
-
-          // Offer’ı al
-          const offer = roomSnapshot.val().offer;
-          if (!offer) throw new Error("Offer not found in room");
-
-          await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
-
-          // Cevap oluştur ve gönder
-          const answer = await pc.current.createAnswer();
-          await pc.current.setLocalDescription(answer);
-
-          await update(roomRef, {
-            answer: {
-              type: answer.type,
-              sdp: answer.sdp,
-            },
-          });
-
-          // Karşı taraf ICE candidate'larını dinle
-          onValue(ref(db, `rooms/${roomId}/candidates/caller`), (snapshot) => {
-            const candidates = snapshot.val();
-            if (candidates) {
-              Object.values(candidates).forEach(async (candidate) => {
-                try {
-                  await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
-                } catch (e) {
-                  console.error("Error adding caller candidate:", e);
-                }
-              });
-            }
-          });
-
-          // Kendi ICE candidate’larını gönder
-          pc.current.onicecandidate = (event) => {
-            if (event.candidate) {
-              const candidatesRef = ref(db, `rooms/${roomId}/candidates/callee`);
-              update(candidatesRef, { [Date.now()]: event.candidate.toJSON() });
-            }
-          };
-
-          setIsConnected(true);
         }
-      } catch (err) {
-        setError("Connection error: " + err.message);
-        console.error(err);
-      }
-    };
 
-    if (roomId) {
-      startConnection();
+        // If answer exists and remote description not set yet
+        if (roomData?.answer && pcRef.current.signalingState !== "stable") {
+          const answerDescription = roomData.answer;
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answerDescription));
+        }
+      });
+
+      // Listen for remote ICE candidates
+      onValue(candidatesRef, (snapshot) => {
+        const candidates = snapshot.val();
+        if (candidates) {
+          Object.values(candidates).forEach(async (candidate) => {
+            try {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (e) {
+              console.error("Error adding received ICE candidate", e);
+            }
+          });
+        }
+      });
+    } catch (err) {
+      setErrorMsg("Kamera ve mikrofon erişimi reddedildi veya mevcut değil.");
+      setIsPermissionGranted(false);
     }
+  };
 
-    // Cleanup (odadan çıkışta)
+  // On component mount
+  useEffect(() => {
+    loginAnonymously();
+
+    // Cleanup on unmount
     return () => {
-      if (pc.current) {
-        pc.current.close();
+      if (pcRef.current) {
+        pcRef.current.close();
       }
+      // Remove room data from Firebase to avoid stale data
       remove(roomRef);
-      setIsConnected(false);
     };
-  }, [roomId]);
+  }, [roomName]);
 
   return (
     <div className="video-chat-room">
-      <div>
-        <h2>Room: {roomId}</h2>
-        {error && <p style={{ color: "red" }}>Error: {error}</p>}
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="local-video"
-        />
-      </div>
-      <div>
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="remote-video"
-        />
-      </div>
-      <button onClick={onLeave} className="join-button" style={{marginTop:"20px"}}>
-        Leave Room
-      </button>
+      {!isPermissionGranted && (
+        <div className="permission-request">
+          <p>{errorMsg || "Kamera ve mikrofon erişimi gerekiyor."}</p>
+          <button className="join-button" onClick={getMedia}>
+            Kamera ve Mikrofon İzni Ver
+          </button>
+          <button className="join-button" onClick={() => navigate("/")}>
+            Odayı Terk Et
+          </button>
+        </div>
+      )}
+
+      {isPermissionGranted && (
+        <>
+          <video ref={localVideoRef} autoPlay muted playsInline className="local-video" />
+          <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
+          <button className="join-button" onClick={() => navigate("/")}>
+            Odayı Terk Et
+          </button>
+        </>
+      )}
     </div>
   );
-};
-
-export default VideoChatRoom;
+}
