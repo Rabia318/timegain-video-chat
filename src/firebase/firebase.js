@@ -12,9 +12,20 @@ const firebaseConfig = {
   appId: "1:336582098261:web:6679e3fc20f0cd1eed143dc",
 };
 
+// Firebase app initialization
 const app = initializeApp(firebaseConfig);
 
+// Auth and Database exports
 export const auth = getAuth(app);
 export const db = getDatabase(app);
 
-export const loginAnonymously = () => signInAnonymously(auth);
+// Anonim giriş fonksiyonu, async/await uyumlu
+export const loginAnonymously = async () => {
+  try {
+    const userCredential = await signInAnonymously(auth);
+    return userCredential;
+  } catch (error) {
+    console.error("Anonim giriş başarısız:", error);
+    throw error;
+  }
+};
