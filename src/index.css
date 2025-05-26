@@ -3,8 +3,8 @@ body, html, #root {
   height: 100%;
   margin: 0;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f9f5f0;
-  color: #084c61;
+  background-color: #f9f5f0; /* Krem ton */
+  color: #084c61; /* Koyu mavi */
 }
 
 .app-container {
@@ -21,7 +21,7 @@ body, html, #root {
   background-color: white;
   padding: 40px 60px;
   border-radius: 10px;
-  box-shadow: 0 4px 15px rgb(8 76 97 / 0.15);
+  box-shadow: 0 4px 15px rgba(8, 76, 97, 0.15);
   text-align: center;
   max-width: 400px;
   width: 100%;
@@ -47,9 +47,10 @@ body, html, #root {
 }
 
 .room-input:focus {
-  border-color: #3da5d9;
+  border-color: #3da5d9; /* Açık mavi */
 }
 
+/* Join button */
 .join-button {
   background-color: #3da5d9;
   border: none;
@@ -88,12 +89,12 @@ body, html, #root {
   height: auto;
   border-radius: 10px;
   background-color: #000;
-  box-shadow: 0 4px 15px rgb(8 76 97 / 0.3);
+  box-shadow: 0 4px 15px rgba(8, 76, 97, 0.3);
   object-fit: cover;
   margin-bottom: 15px;
 }
 
-/* Permission request */
+/* Permission request container */
 .permission-request {
   text-align: center;
   max-width: 400px;
@@ -101,7 +102,12 @@ body, html, #root {
   background-color: white;
   padding: 40px 60px;
   border-radius: 10px;
-  box-shadow: 0 4px 15px rgb(8 76 97 / 0.15);
+  box-shadow: 0 4px 15px rgba(8, 76, 97, 0.15);
   color: #084c61;
   font-weight: 600;
+}
+
+.permission-request p {
+  margin-bottom: 20px;
+  font-size: 1.1rem;
 }
